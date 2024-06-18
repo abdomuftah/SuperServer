@@ -21,10 +21,11 @@
 
 ## سكربت خاص لاصحاب السيرفرات :
 
-هذا السكربت يقوم بتحميل اخر اصدار من نسخة الاباتشي او الانجنكس ونسخة PHP اختياريو حسب الطلب:
+هذا السكربت يقوم بتحميل اخر اصدار من نسخة الاباتشي او الانجنكس ونسخة PHP اختيارية حسب الطلب مع ادوات مساعدة:
 
+عند الانتهاء من التثبيت قم بالدخول على الدومين او الاي بي المرتبط بالسيرفر للحصول على كافة المعلومات :
 
-Nginx / Mariadb / PHP 8.1 + modules / phpMyAdmin / nodeJS / SSL Let's Encrypt / glances 
+Nginx / Mariadb / PHP + modules / phpMyAdmin / nodeJS / SSL Let's Encrypt / glances 
 
 قم بنسخ الامر ال
 
@@ -41,7 +42,7 @@ Nginx / Mariadb / PHP 8.1 + modules / phpMyAdmin / nodeJS / SSL Let's Encrypt / 
 this script will install and enable the following tools :
 
 
-Nginx / Mariadb / PHP 8.1 + modules / phpMyAdmin / nodeJS / SSL Let's Encrypt / glances 
+Nginx / Mariadb / PHP + modules / phpMyAdmin / nodeJS / SSL Let's Encrypt / glances 
 
 copy this command : 
 
