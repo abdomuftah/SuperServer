@@ -81,9 +81,9 @@
         <div class="section">
             <h2>Disk Usage</h2>
             <div class="info">
-                <p><strong>Total Disk Space:</strong> <?php echo shell_exec('df -h / | awk \'NR==2 {print $2}\''); ?></p>
-                <p><strong>Used Disk Space:</strong> <?php echo shell_exec('df -h / | awk \'NR==2 {print $3}\''); ?></p>
-                <p><strong>Free Disk Space:</strong> <?php echo shell_exec('df -h / | awk \'NR==2 {print $4}\''); ?></p>
+                <p><strong>Total Disk Space:</strong> <?php echo shell_exec('df -h / | awk \'NR==2 {print $2}\'' ); ?></p>
+                <p><strong>Used Disk Space:</strong> <?php echo shell_exec('df -h / | awk \'NR==2 {print $3}\'' ); ?></p>
+                <p><strong>Free Disk Space:</strong> <?php echo shell_exec('df -h / | awk \'NR==2 {print $4}\'' ); ?></p>
             </div>
         </div>
 
@@ -110,6 +110,8 @@
                 <a href="https://discord.snyt.xyz" class="discord-button" target="_blank"><i class="fab fa-discord"></i> Discord</a>
                 <a href="http://example.com:61208" class="glances-button" target="_blank"><i class="fas fa-chart-line"></i> Open Glances</a>
                 <a href="https://example.com/phpmyadmin" class="phpmyadmin-button" target="_blank"><i class="fas fa-database"></i> phpMyAdmin</a>
+                <a href="http://example.com:19999" class="netdata-button" target="_blank"><i class="fas fa-tachometer-alt"></i> Netdata</a>
+                <a href="http://example.com:9001" class="supervisor-button" target="_blank"><i class="fas fa-tasks"></i> Supervisor</a>
             </div>
         </div>
     </div>

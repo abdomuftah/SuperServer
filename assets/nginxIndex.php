@@ -68,20 +68,22 @@
         <div class="section">
             <h2>Server Details</h2>
             <div class="info">
+                <p><strong>Operating System:</strong> <?php echo php_uname('s'); ?></p>
                 <p><strong>Server Software:</strong> <?php echo $_SERVER['SERVER_SOFTWARE']; ?></p>
-                <p><strong>Server Protocol:</strong> <?php echo $_SERVER['SERVER_PROTOCOL']; ?></p>
+                <p><strong>PHP Version:</strong> <?php echo phpversion(); ?></p>
+                <p><strong>Server IP:</strong> <?php echo $_SERVER['SERVER_ADDR']; ?></p>
                 <p><strong>Server Uptime:</strong> <?php echo shell_exec('uptime -p'); ?></p>
                 <p><strong>CPU Cores:</strong> <?php echo shell_exec('nproc'); ?></p>
-                <p><strong>Operating System:</strong> <?php echo php_uname('s'); ?></p>
+                <p><strong>Hostname:</strong> <?php echo php_uname('n'); ?></p>
             </div>
         </div>
 
         <div class="section">
             <h2>Disk Usage</h2>
             <div class="info">
-                <p><strong>Total Disk Space:</strong> <?php echo shell_exec('df -h / | awk \'NR==2 {print $2}\''); ?></p>
-                <p><strong>Used Disk Space:</strong> <?php echo shell_exec('df -h / | awk \'NR==2 {print $3}\''); ?></p>
-                <p><strong>Free Disk Space:</strong> <?php echo shell_exec('df -h / | awk \'NR==2 {print $4}\''); ?></p>
+                <p><strong>Total Disk Space:</strong> <?php echo shell_exec('df -h / | awk \'NR==2 {print $2}\'' ); ?></p>
+                <p><strong>Used Disk Space:</strong> <?php echo shell_exec('df -h / | awk \'NR==2 {print $3}\'' ); ?></p>
+                <p><strong>Free Disk Space:</strong> <?php echo shell_exec('df -h / | awk \'NR==2 {print $4}\'' ); ?></p>
             </div>
         </div>
 
@@ -100,13 +102,16 @@
                 <p><strong>Free RAM:</strong> <?php echo $mem[3]; ?></p>
             </div>
         </div>
-
+        
         <div class="section">
             <h2>Connect with Me</h2>
             <div class="social-icons">
                 <a href="https://twitter.com/ScarNaruto" class="twitter-button" target="_blank"><i class="fab fa-twitter"></i> Twitter</a>
                 <a href="https://discord.snyt.xyz" class="discord-button" target="_blank"><i class="fab fa-discord"></i> Discord</a>
                 <a href="http://example.com:61208" class="glances-button" target="_blank"><i class="fas fa-chart-line"></i> Open Glances</a>
+                <a href="https://example.com/phpmyadmin" class="phpmyadmin-button" target="_blank"><i class="fas fa-database"></i> phpMyAdmin</a>
+                <a href="http://example.com:19999" class="netdata-button" target="_blank"><i class="fas fa-tachometer-alt"></i> Netdata</a>
+                <a href="http://example.com:9001" class="supervisor-button" target="_blank"><i class="fas fa-tasks"></i> Supervisor</a>
                 <a href="http://example.com:9000" class="phpmyadmin-button" target="_blank"><i class="fas fa-server"></i> Nginx UI</a>
             </div>
         </div>
