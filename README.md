@@ -14,8 +14,6 @@
 ![NodeJS](https://img.shields.io/badge/node.js-6DA55F?style=for-the-badge&logo=node.js&logoColor=white)
 
 
- New Server Script LEMP+
-
 
  [![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.snyt.xyz)
 
@@ -25,7 +23,8 @@
 
 عند الانتهاء من التثبيت قم بالدخول على الدومين او الاي بي المرتبط بالسيرفر للحصول على كافة المعلومات :
 
-Nginx / Mariadb / PHP + modules / phpMyAdmin / nodeJS / SSL Let's Encrypt / glances 
+
+Nginx or Apache2 / Mariadb / PHP + modules / phpMyAdmin / nodeJS / SSL Let's Encrypt / glances 
 
 قم بنسخ الامر ال
 
@@ -39,10 +38,12 @@ Nginx / Mariadb / PHP + modules / phpMyAdmin / nodeJS / SSL Let's Encrypt / glan
  
 ## Spical Script Server :
 
-this script will install and enable the following tools :
+This script wil install last version form Apache2 or Nginx and your choise from php version with some adutional tools :
+
+After finishing the installation go to the domain or the ip for the server to learn more :
 
 
-Nginx / Mariadb / PHP + modules / phpMyAdmin / nodeJS / SSL Let's Encrypt / glances 
+Nginx or Apache2 / Mariadb / PHP + modules / phpMyAdmin / nodeJS / SSL Let's Encrypt / glances 
 
 copy this command : 
 
