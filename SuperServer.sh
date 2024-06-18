@@ -84,7 +84,7 @@ echo -e "\e[1;32m******************************************\e[0m"
 echo -e "\e[1;32mInstalling additional tools...\e[0m"
 echo -e "\e[1;32m******************************************\e[0m"
 sleep 3
-apt install -y screen nano curl git zip unzip ufw certbot tar redis-server sed composer || display_error "Failed to install additional tools"
+apt install -y screen nano curl git zip unzip ufw certbot || display_error "Failed to install additional tools"
 if [[ "$web_server" == "apache" ]]; then
     apt install -y python3-certbot-apache || display_error "Failed to install Certbot for Apache"
 else
@@ -161,7 +161,7 @@ echo -e "\e[1;32m******************************************\e[0m"
 echo -e "\e[1;32mInstalling PHP $php_version + modules...\e[0m"
 echo -e "\e[1;32m******************************************\e[0m"
 sleep 3
-apt -y install php$php_version php$php_version-{curl,imagick,common,cli,mysql,sqlite3,intl,gd,mbstring,fpm,xml,redis,zip,bcmath,simplexml,tokenizer,dom,fileinfo,iconv,ctype,xmlrpc,soap,bz2,tidy} || display_error "Failed to install PHP"
+apt -y install php$php_version php$php_version-{curl,imagick,common,cli,mysql,sqlite3,intl,gd,mbstring,fpm,xml,redis,zip,bcmath,simplexml,tokenizer,dom,fileinfo,iconv,ctype,xmlrpc,soap,bz2,tidy} composer || display_error "Failed to install PHP"
 systemctl enable --now php$php_version-fpm || display_error "Failed to enable PHP $php_version FPM service"
 
 # Install phpMyAdmin
