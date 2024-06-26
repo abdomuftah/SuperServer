@@ -213,14 +213,12 @@ echo -e "\e[1;32m******************************************\e[0m"
 echo -e "\e[1;32mConfiguring PHP...\e[0m"
 echo -e "\e[1;32m******************************************\e[0m"
 wget https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/php.ini || display_error "Failed to download PHP configuration file" $LINENO
-
+#
+cp -f php.ini /etc/php/$php_version/cli/ || display_error "Failed to copy PHP configuration file to CLI directory Nginx" $LINENO
+mv -f php.ini /etc/php/$php_version/fpm/ || display_error "Failed to move PHP configuration file to FPM directory Nginx" $LINENO
 if [[ "$web_server" == "apache" ]]; then
-    cp -f php.ini /etc/php/$php_version/apache2/ || display_error "Failed to copy PHP configuration file to CLI directory apache2" $LINENO
-    mv -f php.ini /etc/php/$php_version/fpm/ || display_error "Failed to move PHP configuration file to FPM directory apache2" $LINENO
     systemctl restart apache2
 else
-    cp -f php.ini /etc/php/$php_version/cli/ || display_error "Failed to copy PHP configuration file to CLI directory Nginx" $LINENO
-    mv -f php.ini /etc/php/$php_version/fpm/ || display_error "Failed to move PHP configuration file to FPM directory Nginx" $LINENO
     systemctl restart nginx
 fi
 service php$php_version-fpm reload
