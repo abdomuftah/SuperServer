@@ -41,7 +41,7 @@ echo -e "\e[1;34m*    with phpMyAdmin, Node.js, and secure     *\e[0m"
 echo -e "\e[1;34m*    your domain with Let's Encrypt SSL.      *\e[0m"
 echo -e "\e[1;34m**********************************************\e[0m"
 echo ""
-
+apt-get install dialog -y
 # Prompt user for domain, email, and MySQL root password
 domain=$(get_user_input "Set Web Domain (Example: example.com): ")
 email=$(get_user_input "Email for Let's Encrypt SSL: ")
@@ -52,8 +52,9 @@ php_versions=("7.4" "" "8.0" "" "8.1" "" "8.2" "")
 php_version=$(display_menu "Super Server Setup" "Choose PHP version" "${php_versions[@]}")
 clear
 # Prompt user to choose web server using dialog
-web_servers=("apache" "" "nginx" "")
-web_server=$(display_menu "Super Server Setup" "Choose web server" "${web_servers[@]}")
+echo "Choose your web server (apache/nginx): "
+read web_server
+web_server=$(echo $web_server | tr '[:upper:]' '[:lower:]')  # Convert to lowercase
 clear
 # Update system packages
 echo -e "\e[1;32m******************************************\e[0m"
@@ -91,18 +92,30 @@ echo -e "\e[1;32m******************************************\e[0m"
 echo -e "\e[1;32mInstalling $web_server...\e[0m"
 echo -e "\e[1;32m******************************************\e[0m"
 sleep 3
-if [[ "$web_server" == "apache" ]]; 
+
+if [[ "$web_server" == "apache" ]]; then
     add-apt-repository -y ppa:ondrej/apache2 || display_error "Failed to add Apache2 repository" $LINENO    
     apt update && apt upgrade -y 
     apt install -y apache2 || display_error "Failed to install Apache2" $LINENO
     systemctl enable apache2 || display_error "Failed to enable Apache2" $LINENO
     apt install -y python3-certbot-apache certbot || display_error "Failed to install Certbot for Apache" $LINENO
-else
+    
+    # Start Apache and check status
+    systemctl start apache2 || display_error "Failed to start Apache2" $LINENO
+    systemctl status apache2 || display_error "Apache service is not running at line $LINENO" $LINENO
+    
+elif [[ "$web_server" == "nginx" ]]; then
     add-apt-repository -y ppa:ondrej/nginx-mainline || display_error "Failed to add Nginx repository" $LINENO
     apt update && apt upgrade -y 
     apt install -y nginx || display_error "Failed to install Nginx" $LINENO
     systemctl enable --now nginx || display_error "Failed to enable Nginx" $LINENO
     apt install -y python3-certbot-nginx certbot || display_error "Failed to install Certbot for Nginx" $LINENO
+    
+    # Start Nginx and check status
+    systemctl start nginx || display_error "Failed to start Nginx" $LINENO
+    systemctl status nginx || display_error "Nginx service is not running at line $LINENO" $LINENO
+else
+    display_error "Invalid web server choice" $LINENO
 fi
 
 # Ensure the web server is running
@@ -383,6 +396,6 @@ echo -e "\e[1;35m----------------------------------\e[0m"
 echo -e "\e[1;35mCheck your web server by going to this link:\e[0m"
 echo -e "\e[1;35mhttps://$domain\e[0m"
 #
-rm SuperServer.sh
+#rm SuperServer.sh
 #
 exit
