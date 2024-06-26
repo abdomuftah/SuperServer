@@ -19,7 +19,7 @@ get_user_input() {
 clear
 echo ""
 echo -e "\e[1;34m******************************************\e[0m"
-echo -e "\e[1;34m*        Scar Naruto Add Domain           *\e[0m"
+echo -e "\e[1;34m*            SNYT Add Domain               *\e[0m"
 echo -e "\e[1;34m******************************************\e[0m"
 echo -e "\e[1;34m*       Add New Domain To Server        *\e[0m"
 echo -e "\e[1;34m*           with Lets Encrypt           *\e[0m"
@@ -56,35 +56,41 @@ mkdir -p /var/www/html/$domain || display_error "Failed to create directory for 
 
 if [[ $web_server == "apache" ]]; then
     # Apache specific configuration
-
-    # Download Apache virtual host configuration template
-    wget -P /etc/apache2/sites-available https://raw.githubusercontent.com/abdomuftah/LAMP-Plus/main/assets/Example.conf || display_error "Failed to download virtual host configuration template"
-    mv /etc/apache2/sites-available/Example.conf /etc/apache2/sites-available/$domain.conf || display_error "Failed to move virtual host configuration template"
-
-    # Replace placeholder with domain in Apache virtual host configuration
-    sed -i "s/example.com/$domain/g" /etc/apache2/sites-available/$domain.conf || display_error "Failed to replace domain in virtual host configuration template"
-
-    a2ensite $domain || display_error "Failed to enable site configuration"
-    systemctl restart apache2 || display_error "Failed to restart Apache"
-
+    echo -e "\e[1;32m******************************************\e[0m"
+    echo -e "\e[1;32mConfiguring apache2 virtual host...\e[0m"
+    echo -e "\e[1;32m******************************************\e[0m"
+    sleep 3
+    # Downloadig Index File
+    wget -P /var/www/html/$domain https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/ApacheIndex.php || display_error "Failed to download index.php" $LINENO
+    mv /var/www/html/$domain/ApacheIndex.php /var/www/html/$domain/index.php
+    sed -i "s/example.com/$domain/g" /var/www/html/$domain/index.php || display_error "Failed to replace domain in index.php" $LINENO
+    # Downloadning conf file
+    wget -P /etc/apache2/sites-available https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/ApacheExample.conf || display_error "Failed to download Apache2 configuration file"
+    mv /etc/apache2/sites-available/ApacheExample.conf /etc/apache2/sites-available/$domain.conf
+    sed -i "s/example.com/$domain/g" /etc/apache2/sites-available/$domain.conf
+    # enable and restart
+    a2ensite $domain.conf || display_error "Failed to enable site configuration" $LINENO
+    systemctl restart apache2 || display_error "Failed to restart Apache" $LINENO
 elif [[ $web_server == "nginx" ]]; then
-    # Nginx specific configuration
-
-    # Download Nginx server block configuration template
-    wget -P /etc/nginx/sites-available https://raw.githubusercontent.com/abdomuftah/LAMP-Plus/main/assets/Example_nginx.conf || display_error "Failed to download server block configuration template"
-    mv /etc/nginx/sites-available/Example_nginx.conf /etc/nginx/sites-available/$domain.conf || display_error "Failed to move server block configuration template"
-
-    # Replace placeholder with domain in Nginx server block configuration
-    sed -i "s/example.com/$domain/g" /etc/nginx/sites-available/$domain.conf || display_error "Failed to replace domain in server block configuration template"
-
-    ln -s /etc/nginx/sites-available/$domain.conf /etc/nginx/sites-enabled/ || display_error "Failed to enable site configuration"
-    systemctl restart nginx || display_error "Failed to restart Nginx"
+    echo -e "\e[1;32m******************************************\e[0m"
+    echo -e "\e[1;32mConfiguring Nginx virtual host...\e[0m"
+    echo -e "\e[1;32m******************************************\e[0m"
+    sleep 3
+    # Downloadig Index File
+    wget -P /var/www/html/$domain https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/nginxIndex.php || display_error "Failed to download index.php" $LINENO
+    mv /var/www/html/$domain/nginxIndex.php /var/www/html/$domain/index.php
+    sed -i "s/example.com/$domain/g" /var/www/html/$domain/index.php || display_error "Failed to replace domain in index.php" $LINENO
+    # Downloadning conf file
+    wget -P /etc/nginx/sites-available https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/nginxExample.conf || display_error "Failed to download Nginx configuration file"
+    mv /etc/nginx/sites-available/nginxExample.conf /etc/nginx/sites-available/$domain.conf
+    sed -i "s/example.com/$domain/g" /etc/nginx/sites-available/$domain.conf
+    sed -i "s/phpversion/$php_version/g" /etc/nginx/sites-available/$domain.conf
+    ln -s /etc/nginx/sites-available/$domain.conf /etc/nginx/sites-enabled/
+    # Start Nginx
+    nginx -t && systemctl reload nginx || display_error "Failed to configure Nginx" $LINENO
+    systemctl restart nginx
 
 fi
-
-# Download index.php template
-wget -P /var/www/html/$domain https://raw.githubusercontent.com/abdomuftah/LAMP-Plus/main/assets/index.php || display_error "Failed to download index.php template"
-sed -i "s/example.com/$domain/g" /var/www/html/$domain/index.php || display_error "Failed to replace domain in index.php template"
 
 chown -R www-data:www-data /var/www/html/$domain/
 chmod -R 755 /var/www/html/$domain/
