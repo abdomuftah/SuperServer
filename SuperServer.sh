@@ -355,6 +355,16 @@ if [[ "$web_server" == "apache" ]]; then
 else
     certbot --nginx --non-interactive --agree-tos --redirect --hsts --staple-ocsp --email $email -d $domain || display_error "Failed to configure SSL with Let's Encrypt for Nginx" $LINENO
 fi
+
+# Install nginx-ui
+echo -e "\e[1;32m******************************************\e[0m"
+echo -e "\e[1;32mInstalling nginx-ui...\e[0m"
+echo -e "\e[1;32m******************************************\e[0m"
+sleep 3
+if [[ "$web_server" == "nginx"]]; then
+   bash <(curl -L -s https://raw.githubusercontent.com/0xJacky/nginx-ui/master/install.sh) install
+fi
+
 # Start UFW
 ufw enable || display_error "Failed to enable UFW" $LINENO
 ufw status || display_error "Failed to check UFW status" $LINENO
