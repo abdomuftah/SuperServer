@@ -45,7 +45,7 @@ echo ""
 domain=$(get_user_input "Add Domain" "Set Web Domain (Example: example.com [No trailing slash!]): ")
 
 # Validate domain format
-if [[ ! $domain =~ ^[a-zA-Z0-9.-]+$ ]]; then
+if [[ ! $domain =~ ^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$ ]]; then
     display_error "Invalid domain format" $LINENO
 fi
 
