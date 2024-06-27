@@ -21,7 +21,7 @@ clear
 # Display header
 echo ""
 echo -e "\e[1;34m**********************************************\e[0m"
-echo -e "\e[1;34m*         Ubuntu Super Server Setup          *\e[0m"
+echo -e "\e[1;34m*         SNYT Super Server Setup          *\e[0m"
 echo -e "\e[1;34m**********************************************\e[0m"
 echo -e "\e[1;34m* This script will install a Webservice stack *\e[0m"
 echo -e "\e[1;34m*               apache2 Or Nginx              *\e[0m"
