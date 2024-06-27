@@ -337,22 +337,15 @@ systemctl enable --now netdata || display_error "Failed to enable netdata" $LINE
 systemctl restart netdata || display_error "Failed to restart netdata" $LINENO
 #
 echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mInstalling Supervisor and Glances...\e[0m"
+echo -e "\e[1;32mInstalling Glances...\e[0m"
 echo -e "\e[1;32m******************************************\e[0m"
 sleep 3
-apt install -y supervisor || display_error "Failed to install Supervisor" $LINENO
 pip3 install glances[all] || display_error "Failed to install Glances plugins" $LINENO
 wget -P /etc/systemd/system/ https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/glances.service || display_error "Failed to download Glances service file" $LINENO
 # Enable / start / restart Glances
 systemctl enable --now glances.service || display_error "Failed to enable glances" $LINENO
 systemctl start glances.service || display_error "Failed to start glances" $LINENO
 systemctl restart glances.service || display_error "Failed to restart glances" $LINENO
-
-# Enable / start / restart supervisor
-systemctl restart supervisor || display_error "Failed to restart Supervisor" $LINENO
-systemctl enable supervisor || display_error "Failed to enable Supervisor" $LINENO
-supervisorctl reload || display_error "Failed to reload Supervisor" $LINENO
-supervisorctl restart all || display_error "Failed to restart all Supervisor programs" $LINENO
 
 # Configure SSL with Let's Encrypt
 echo -e "\e[1;32m******************************************\e[0m"
@@ -367,19 +360,15 @@ fi
 ufw enable || display_error "Failed to enable UFW" $LINENO
 ufw status || display_error "Failed to check UFW status" $LINENO
 
-# Restart web server and PHP-FPM service
-systemctl restart $web_server || display_error "Failed to restart $web_server service" $LINENO
-systemctl restart php$php_version-fpm || display_error "Failed to restart PHP $php_version FPM service" $LINENO
-
 # Set PHP version
 if [[ "$web_server" == "apache" ]]; then
     a2enmod php$php_version
 fi
 update-alternatives --set php /usr/bin/php$php_version
 if [[ "$web_server" == "apache" ]]; then
-    systemctl restart apache2
+    systemctl restart apache2 || display_error "Failed to restart $web_server service" $LINENO
 else
-    systemctl restart nginx
+    systemctl restart nginx || display_error "Failed to restart $web_server service" $LINENO
 fi
 service php$php_version-fpm reload
 

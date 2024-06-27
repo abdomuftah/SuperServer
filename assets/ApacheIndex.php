@@ -111,7 +111,6 @@
                 <a href="http://example.com:61208" class="glances-button" target="_blank"><i class="fas fa-chart-line"></i> Open Glances</a>
                 <a href="https://example.com/phpmyadmin" class="phpmyadmin-button" target="_blank"><i class="fas fa-database"></i> phpMyAdmin</a>
                 <a href="http://example.com:19999" class="netdata-button" target="_blank"><i class="fas fa-tachometer-alt"></i> Netdata</a>
-                <a href="http://example.com:9001" class="supervisor-button" target="_blank"><i class="fas fa-tasks"></i> Supervisor</a>
             </div>
         </div>
     </div>
