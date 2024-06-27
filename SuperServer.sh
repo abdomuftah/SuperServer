@@ -143,7 +143,6 @@ else
 fi
 ufw allow in 61208 || display_error "Failed to allow port 61208" $LINENO
 ufw allow OpenSSH || display_error "Failed to allow OpenSSH" $LINENO
-ufw allow 9001 || display_error "Failed to allow Supervisor" $LINENO
 ufw allow 19999 || display_error "Failed to allow Netdata" $LINENO
 
 # Install MySQL
