@@ -356,15 +356,6 @@ else
     certbot --nginx --non-interactive --agree-tos --redirect --hsts --staple-ocsp --email $email -d $domain || display_error "Failed to configure SSL with Let's Encrypt for Nginx" $LINENO
 fi
 
-# Install nginx-ui
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mInstalling nginx-ui...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
-sleep 3
-if [[ "$web_server" == "nginx"]]; then
-   bash <(curl -L -s https://raw.githubusercontent.com/0xJacky/nginx-ui/master/install.sh) install
-fi
-
 # Start UFW
 ufw enable || display_error "Failed to enable UFW" $LINENO
 ufw status || display_error "Failed to check UFW status" $LINENO
@@ -377,6 +368,14 @@ update-alternatives --set php /usr/bin/php$php_version
 if [[ "$web_server" == "apache" ]]; then
     systemctl restart apache2 || display_error "Failed to restart $web_server service" $LINENO
 else
+    # Install nginx-ui
+    echo -e "\e[1;32m******************************************\e[0m"
+    echo -e "\e[1;32mInstalling nginx-ui...\e[0m"
+    echo -e "\e[1;32m******************************************\e[0m"
+    sleep 3
+    
+    bash <(curl -L -s https://raw.githubusercontent.com/0xJacky/nginx-ui/master/install.sh) install
+    # Restart nginx
     systemctl restart nginx || display_error "Failed to restart $web_server service" $LINENO
 fi
 service php$php_version-fpm reload
