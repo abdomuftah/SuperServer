@@ -111,9 +111,8 @@ if [[ "$web_server" == "apache" ]]; then
     systemctl enable apache2 || display_error "Failed to enable apache2" $LINENO
     apt install -y python3-certbot-apache certbot || display_error "Failed to install Certbot for apache" $LINENO
     
-    # Start apache and check status
+    # Start apache
     systemctl start apache2 || display_error "Failed to start apache2" $LINENO
-    systemctl status apache2 || display_error "apache service is not running at line $LINENO" $LINENO
     
 elif [[ "$web_server" == "nginx" ]]; then
     add-apt-repository -y ppa:ondrej/nginx-mainline || display_error "Failed to add Nginx repository" $LINENO
@@ -122,9 +121,8 @@ elif [[ "$web_server" == "nginx" ]]; then
     systemctl enable --now nginx || display_error "Failed to enable Nginx" $LINENO
     apt install -y python3-certbot-nginx certbot || display_error "Failed to install Certbot for Nginx" $LINENO
     
-    # Start Nginx and check status
+    # Start Nginx 
     systemctl start nginx || display_error "Failed to start Nginx" $LINENO
-    systemctl status nginx || display_error "Nginx service is not running at line $LINENO" $LINENO
 else
     display_error "Invalid web server choice" $LINENO
 fi
