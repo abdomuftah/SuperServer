@@ -94,7 +94,7 @@ sleep 3
 apt install -y screen nano curl git zip unzip ufw || display_error "Failed to install additional tools" $LINENO
 apt install -y python3.11 libmysqlclient-dev python3-dev python3-pip || display_error "Failed to install Python tools" $LINENO
 ln -s /usr/bin/python3.11 /usr/bin/python || display_error "Failed to create symlink for Python" $LINENO
-curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py && python3 get-pip.py || display_error "Failed to install Python pip" $LINENO
+curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py && python3 get-pip.py --break-system-packages || display_error "Failed to install Python pip" $LINENO
 python3 -m pip install Django --break-system-packages || display_error "Failed to install Django" $LINENO
 rm get-pip.py || display_error "Failed to remove get-pip.py" $LINENO
 
