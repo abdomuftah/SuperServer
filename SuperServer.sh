@@ -380,9 +380,9 @@ service php$php_version-fpm reload
 
 # Download and execute the appropriate script based on the web server
 if [[ $web_server == "apache" ]]; then
-    wget -O super-sdomain.sh https://raw.githubusercontent.com/abdomuftah/SuperServer/main/apache_setup.sh || display_error "Failed to download Apache setup script" $LINENO
+    wget -O super-sdomain.sh https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/apache_setup.sh || display_error "Failed to download Apache setup script" $LINENO
 elif [[ $web_server == "nginx" ]]; then
-    wget -O super-sdomain.sh https://raw.githubusercontent.com/abdomuftah/SuperServer/main/nginx_setup.sh || display_error "Failed to download Nginx setup script" $LINENO
+    wget -O super-sdomain.sh https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/nginx_setup.sh || display_error "Failed to download Nginx setup script" $LINENO
 fi
 
 # Set permissions
