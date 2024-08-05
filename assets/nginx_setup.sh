@@ -28,7 +28,7 @@ get_php_version() {
 clear
 echo ""
 echo -e "\e[1;34m******************************************\e[0m"
-echo -e "\e[1;34m*              SNYT Add Domain            *\e[0m"
+echo -e "\e[1;34m*          SNYT Add Domain-nginx        *\e[0m"
 echo -e "\e[1;34m******************************************\e[0m"
 echo -e "\e[1;34m*       Add New Domain to Your Server     *\e[0m"
 echo -e "\e[1;34m*           with Let's Encrypt SSL        *\e[0m"
@@ -36,26 +36,32 @@ echo -e "\e[1;34m******************************************\e[0m"
 echo ""
 
 # Prompt user for domain
-domain=$(get_user_input "Add Domain" "Set Web Domain (Example: example.com [No trailing slash!]): ")
+domain=$(get_user_input "Set Web Domain (Example: example.com): ")
 
 # Validate domain format
 if [[ ! $domain =~ ^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$ ]]; then
     display_error "Invalid domain format" $LINENO
 fi
 
-mkdir -p /var/www/html/$domain || display_error "Failed to create directory for domain" $LINENO
+# Downloading Index File
+wget -P /var/www/html/$domain https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/nginxIndex.php || display_error "Failed to download index.php" $LINENO
+mv /var/www/html/$domain/nginxIndex.php /var/www/html/$domain/index.php
+sed -i "s/example.com/$domain/g" /var/www/html/$domain/index.php || display_error "Failed to replace domain in index.php" $LINENO
 
-# Get PHP version
-php_version=$(get_php_version)
+# Downloading conf file
+wget -P /etc/nginx/sites-available https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/nginxExample.conf || display_error "Failed to download Nginx configuration file" $LINENO
+mv /etc/nginx/sites-available/nginxExample.conf /etc/nginx/sites-available/$domain.conf
+sed -i "s/example.com/$domain/g" /etc/nginx/sites-available/$domain.conf
+sed -i "s/phpversion/$php_version/g" /etc/nginx/sites-available/$domain.conf
+ln -s /etc/nginx/sites-available/$domain.conf /etc/nginx/sites-enabled/
 
-# Call the appropriate script based on the web server
-if [[ $web_server == "apache" ]]; then
-    wget https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/apache_setup.sh || display_error "Failed to download Apache setup script" $LINENO
-    ./apache_setup.sh "$domain" "$php_version" "$default_email"
-elif [[ $web_server == "nginx" ]]; then
-    wget https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/nginx_setup.sh || display_error "Failed to download Nginx setup script" $LINENO
-    ./nginx_setup.sh "$domain" "$php_version" "$default_email"
-fi
+# Start Nginx
+nginx -t && systemctl reload nginx || display_error "Failed to configure Nginx" $LINENO
+systemctl restart nginx
+
+# Let's Encrypt SSL
+certbot --noninteractive --agree-tos --no-eff-email --cert-name $domain --nginx --redirect -d $domain -m $default_email || display_error "Failed to install Let's Encrypt SSL" $LINENO
+systemctl restart nginx.service || display_error "Failed to restart Nginx after Let's Encrypt SSL renewal" $LINENO
 
 chown -R www-data:www-data /var/www/html/$domain/
 chmod -R 755 /var/www/html/$domain/
