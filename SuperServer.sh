@@ -173,7 +173,7 @@ echo -e "\e[1;32m******************************************\e[0m"
 echo -e "\e[1;32mInstalling PHP $php_version + modules...\e[0m"
 echo -e "\e[1;32m******************************************\e[0m"
 sleep 3
-apt install -y php$php_version php$php_version-common php$php_version-cli php$php_version-sqlite3 php$php_version-fpm php$php_version-redis php$php_version-mysql php$php_version-simplexml php$php_version-xml php$php_version-curl php$php_version-zip php$php_version-mbstring php$php_version-bcmath php$php_version-soap php$php_version-intl php$php_version-readline php$php_version-gd php$php_version-tokenizer php$php_version-dom php$php_version-fileinfo php$php_version-iconv php$php_version-ctype php$php_version-xmlrpc php$php_version-soap php$php_version-bz2 php$php_version-tidy php$php_version-imagick || display_error "Failed to install PHP and extensions" $LINENO
+apt -y install php$php_version php$php_version-curl php$php_version-common php$php_version-cli php$php_version-mysql php$php_version-redis php$php_version-simplexml php$php_version-sqlite3 php$php_version-readline php$php_version-intl php$php_version-iconv php$php_version-ctype php$php_version-gd php$php_version-tokenizer php$php_version-mbstring php$php_version-fileinfo php$php_version-fpm php$php_version-dom php$php_version-xml php$php_version-zip php$php_version-bcmath libapache2-mod-php$php_version php$php_version-sqlite3 php$php_version-gd php$php_version-intl php$php_version-xmlrpc php$php_version-soap php$php_version-bz2 php$php_version-imagick php$php_version-tidy tar sed  || display_error "Failed to install PHP and extensions" $LINENO
 update-alternatives --set php /usr/bin/php$php_version || display_error "Failed to set PHP version" $LINENO
 update-alternatives --set phar /usr/bin/phar$php_version || display_error "Failed to set phar version" $LINENO
 update-alternatives --set phar.phar /usr/bin/phar.phar$php_version || display_error "Failed to set phar.phar version" $LINENO
@@ -195,16 +195,12 @@ echo -e "\e[1;32m******************************************\e[0m"
 echo -e "\e[1;32mInstalling phpMyAdmin...\e[0m"
 echo -e "\e[1;32m******************************************\e[0m"
 sleep 2
-mkdir -p /var/www/html/$domain
-chown -R $USER:$USER /var/www/html/$domain
-chmod -R 755 /var/www
 echo "phpmyadmin phpmyadmin/dbconfig-install boolean true" | debconf-set-selections
 echo "phpmyadmin phpmyadmin/mysql/admin-pass password $mysql_root_password" | debconf-set-selections
 echo "phpmyadmin phpmyadmin/mysql/app-pass password $mysql_root_password" | debconf-set-selections
 echo "phpmyadmin phpmyadmin/reconfigure-webserver multiselect none" | debconf-set-selections
 # installing phpMyAdmin
 apt install -y phpmyadmin  || display_error "Failed to install phpMyAdmin" $LINENO
-ln -s /usr/share/phpmyadmin /var/www/html/$domain/phpmyadmin || display_error "Failed to create symbolic link for phpMyAdmin" $LINENO
 
 # Configure PHP
 echo -e "\e[1;32m******************************************\e[0m"
@@ -212,11 +208,15 @@ echo -e "\e[1;32mConfiguring PHP...\e[0m"
 echo -e "\e[1;32m******************************************\e[0m"
 wget https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/php.ini || display_error "Failed to download PHP configuration file" $LINENO
 #
-cp -f php.ini /etc/php/$php_version/cli/ || display_error "Failed to copy PHP configuration file to CLI directory Nginx" $LINENO
-mv -f php.ini /etc/php/$php_version/fpm/ || display_error "Failed to move PHP configuration file to FPM directory Nginx" $LINENO
+cp -f php.ini /etc/php/$php_version/fpm/ || display_error "Failed to move PHP configuration file to FPM directory" $LINENO
 if [[ "$web_server" == "apache" ]]; then
+cp -f php.ini /etc/php/$php_version/cli/ || display_error "Failed to copy PHP configuration file to CLI directory " $LINENO
+mv -f php.ini /etc/php/$php_version/apache2/ || display_error "Failed to copy PHP configuration file to CLI directory Apache2" $LINENO
+
     systemctl restart apache2
 else
+mv -f php.ini /etc/php/$php_version/cli/ || display_error "Failed to copy PHP configuration file to CLI directory Nginx" $LINENO
+
     systemctl restart nginx
 fi
 service php$php_version-fpm reload
@@ -236,6 +236,9 @@ echo -e "\e[1;32m******************************************\e[0m"
 echo -e "\e[1;32mConfiguring $web_server ...\e[0m"
 echo -e "\e[1;32m******************************************\e[0m"
 sleep 2
+mkdir -p /var/www/html/$domain
+chown -R $USER:$USER /var/www/html/$domain
+chmod -R 755 /var/www
 if [[ "$web_server" == "apache" ]]; then
     echo -e "\e[1;32m******************************************\e[0m"
     echo -e "\e[1;32mConfiguring apache2 virtual host...\e[0m"
@@ -272,11 +275,11 @@ else
     mv /etc/nginx/snippets/fastcgi-php.conf /etc/nginx/snippets/back_fastcgi-php.conf
     wget -P /etc/nginx/snippets/ https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/fastcgi-php.conf || display_error "Failed to download FastCGI PHP configuration file" $LINENO
     mv /etc/nginx/nginx.conf /etc/nginx/Back_nginx.conf
-    wget -P /etc/nginx/ https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/nginx.conf
+    wget -P /etc/nginx/ https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/nginx.conf || display_error "Failed to download Nginx configuration file" $LINENO
     # Start Nginx
-    systemctl start nginx
+    systemctl start nginx || display_error "Failed to start Nginx" $LINENO
     nginx -t && systemctl reload nginx || display_error "Failed to configure Nginx" $LINENO
-    systemctl restart nginx
+    systemctl restart nginx || display_error "Failed to restart Nginx" $LINENO
 fi
 
 service php$php_version-fpm reload
@@ -344,6 +347,89 @@ wget -P /etc/systemd/system/ https://raw.githubusercontent.com/abdomuftah/SuperS
 systemctl enable --now glances.service || display_error "Failed to enable glances" $LINENO
 systemctl start glances.service || display_error "Failed to start glances" $LINENO
 systemctl restart glances.service || display_error "Failed to restart glances" $LINENO
+
+# Install Fail2Ban
+echo -e "\e[1;32m******************************************\e[0m"
+echo -e "\e[1;32mInstalling Fail2Ban...\e[0m"
+echo -e "\e[1;32m******************************************\e[0m"
+sleep 3
+apt install -y fail2ban || display_error "Failed to install Fail2Ban" $LINENO
+
+# Create Fail2Ban local configuration file
+echo -e "\e[1;32m******************************************\e[0m"
+echo -e "\e[1;32mConfiguring Fail2Ban...\e[0m"
+echo -e "\e[1;32m******************************************\e[0m"
+sleep 3
+
+    # Create Fail2Ban local configuration
+
+if [[ "$web_server" == "apache" ]]; then
+    cat <<EOF > /etc/fail2ban/jail.local
+    [DEFAULT]
+    # Ban hosts for one hour:
+    bantime = 1h
+    # Find multiple failures within 10 minutes:
+    findtime = 10m
+    # Ban hosts after 5 attempts:
+    maxretry = 5
+
+    [sshd]
+    enabled = true
+
+    # Apache jail
+    [apache-auth]
+    enabled = true
+    port = http,https
+    filter = apache-auth
+    logpath = /var/log/apache*/*error.log
+    maxretry = 5
+
+    # Nginx jail (uncomment if using Nginx)
+    # [nginx-http-auth]
+    # enabled = true
+    # port = http,https
+    # filter = nginx-http-auth
+    # logpath = /var/log/nginx/error.log
+    # maxretry = 5
+    EOF
+elif [[ $web_server == "nginx" ]]; then
+
+    cat <<EOF > /etc/fail2ban/jail.local
+    [DEFAULT]
+    # Ban hosts for one hour:
+    bantime = 1h
+    # Find multiple failures within 10 minutes:
+    findtime = 10m
+    # Ban hosts after 5 attempts:
+    maxretry = 5
+
+    [sshd]
+    enabled = true
+
+    # Apache jail
+    # [apache-auth]
+    # enabled = true
+    # port = http,https
+    # filter = apache-auth
+    # logpath = /var/log/apache*/*error.log
+    # maxretry = 5
+
+    # Nginx jail (uncomment if using Nginx)
+    [nginx-http-auth]
+    enabled = true
+    port = http,https
+    filter = nginx-http-auth
+    logpath = /var/log/nginx/error.log
+    maxretry = 5
+    EOF
+fi
+
+# Enable Fail2Ban service
+systemctl enable fail2ban || display_error "Failed to enable Fail2Ban service" $LINENO
+systemctl start fail2ban || display_error "Failed to start Fail2Ban service" $LINENO
+
+echo -e "\e[1;32mFail2Ban has been successfully installed and configured.\e[0m"
+
 
 # Configure SSL with Let's Encrypt
 echo -e "\e[1;32m******************************************\e[0m"
