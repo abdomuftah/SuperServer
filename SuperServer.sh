@@ -364,9 +364,9 @@ sleep 3
     # Create Fail2Ban local configuration
 
 if [[ $web_server == "apache" ]]; then
-    wget -O jail.local https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/Apachejail.local || display_error "Failed to download Apache setup script" $LINENO
+    wget -O jail.local https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/Apachejail.local || display_error "Failed to download Apache Fail2Ban" $LINENO
 elif [[ $web_server == "nginx" ]]; then
-    wget -O jail.local https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/Nginxjail.local || display_error "Failed to download Nginx setup script" $LINENO
+    wget -O jail.local https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/Nginxjail.local || display_error "Failed to download Nginx Fail2Ban" $LINENO
 fi
 mv jail.local /etc/fail2ban/jail.local
 
