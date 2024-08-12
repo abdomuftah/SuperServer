@@ -363,66 +363,12 @@ sleep 3
 
     # Create Fail2Ban local configuration
 
-if [[ "$web_server" == "apache" ]]; then
-    cat <<EOF > /etc/fail2ban/jail.local
-    [DEFAULT]
-    # Ban hosts for one hour:
-    bantime = 1h
-    # Find multiple failures within 10 minutes:
-    findtime = 10m
-    # Ban hosts after 5 attempts:
-    maxretry = 5
-
-    [sshd]
-    enabled = true
-
-    # Apache jail
-    [apache-auth]
-    enabled = true
-    port = http,https
-    filter = apache-auth
-    logpath = /var/log/apache*/*error.log
-    maxretry = 5
-
-    # Nginx jail (uncomment if using Nginx)
-    # [nginx-http-auth]
-    # enabled = true
-    # port = http,https
-    # filter = nginx-http-auth
-    # logpath = /var/log/nginx/error.log
-    # maxretry = 5
-    EOF
+if [[ $web_server == "apache" ]]; then
+    wget -O jail.local https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/Apachejail.local || display_error "Failed to download Apache setup script" $LINENO
 elif [[ $web_server == "nginx" ]]; then
-
-    cat <<EOF > /etc/fail2ban/jail.local
-    [DEFAULT]
-    # Ban hosts for one hour:
-    bantime = 1h
-    # Find multiple failures within 10 minutes:
-    findtime = 10m
-    # Ban hosts after 5 attempts:
-    maxretry = 5
-
-    [sshd]
-    enabled = true
-
-    # Apache jail
-    # [apache-auth]
-    # enabled = true
-    # port = http,https
-    # filter = apache-auth
-    # logpath = /var/log/apache*/*error.log
-    # maxretry = 5
-
-    # Nginx jail (uncomment if using Nginx)
-    [nginx-http-auth]
-    enabled = true
-    port = http,https
-    filter = nginx-http-auth
-    logpath = /var/log/nginx/error.log
-    maxretry = 5
-    EOF
+    wget -O jail.local https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/Nginxjail.local || display_error "Failed to download Nginx setup script" $LINENO
 fi
+mv jail.local /etc/fail2ban/jail.local
 
 # Enable Fail2Ban service
 systemctl enable fail2ban || display_error "Failed to enable Fail2Ban service" $LINENO

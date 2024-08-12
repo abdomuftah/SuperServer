@@ -1,0 +1,26 @@
+[DEFAULT]
+# Ban hosts for one hour:
+bantime = 1h
+# Find multiple failures within 10 minutes:
+findtime = 10m
+# Ban hosts after 5 attempts:
+maxretry = 5
+
+[sshd]
+enabled = true
+
+# Apache jail
+# [apache-auth]
+# enabled = true
+# port = http,https
+# filter = apache-auth
+# logpath = /var/log/apache*/*error.log
+# maxretry = 5
+
+# Nginx jail (uncomment if using Nginx)
+[nginx-http-auth]
+enabled = true
+port = http,https
+filter = nginx-http-auth
+logpath = /var/log/nginx/error.log
+maxretry = 5
