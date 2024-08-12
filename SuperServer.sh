@@ -418,6 +418,7 @@ elif [[ $web_server == "nginx" ]]; then
 fi
 
 # Set permissions
+sed -i "s/email@email.com/$email/g" super-sdomain.sh || display_error "Failed to replace Email  in super-sdomain.sh" $LINENO
 chmod +x super-sdomain.sh || display_error "Failed to set execute permissions for super-sdomain.sh" $LINENO
 
 #

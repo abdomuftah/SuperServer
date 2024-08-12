@@ -36,7 +36,7 @@ echo -e "\e[1;34m******************************************\e[0m"
 echo ""
 
 # Prompt user for domain
-domain=$(get_user_input "Set Web Domain (Example: example.com): ")
+read -p 'Set Web Domain (Example: 127.0.0.1 [Not trailing slash!]): ' domain
 
 # Validate domain format
 if [[ ! $domain =~ ^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$ ]]; then
