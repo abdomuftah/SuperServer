@@ -341,8 +341,9 @@ echo -e "\e[1;32m******************************************\e[0m"
 echo -e "\e[1;32mInstalling Glances...\e[0m"
 echo -e "\e[1;32m******************************************\e[0m"
 sleep 3
-pip3 install --user 'glances[all]' --break-system-packages || display_error "Failed to install Glances plugins" $LINENO
-#wget -P /etc/systemd/system/ https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/glances.service || display_error "Failed to download Glances service file" $LINENO
+apt install pipx -y || display_error "Failed to install PIPX" $LINENO
+pipx install 'glances[all]' || display_error "Failed to install Glances plugins" $LINENO
+wget -P /etc/systemd/system/ https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/glances.service || display_error "Failed to download Glances service file" $LINENO
 # Enable / start / restart Glances
 systemctl enable --now glances.service || display_error "Failed to enable glances" $LINENO
 systemctl start glances.service || display_error "Failed to start glances" $LINENO
