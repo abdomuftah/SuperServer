@@ -55,7 +55,7 @@ done
 
 # Prompt user for PHP version
 echo "Choose PHP version:"
-php_versions=("7.4" "8.0" "8.1" "8.2")
+php_versions=("7.4" "8.0" "8.1" "8.2" "8.3" "8.4")
 select version in "${php_versions[@]}"
 do
     case $version in
@@ -140,9 +140,9 @@ else
     ufw allow 'Nginx Full' || display_error "Failed to allow Nginx Full profile" $LINENO
     ufw allow 9000 || display_error "Failed to allow port 9000" $LINENO
 fi
-ufw allow in 61208 || display_error "Failed to allow port 61208" $LINENO
+#ufw allow in 61208 || display_error "Failed to allow port 61208" $LINENO
 ufw allow OpenSSH || display_error "Failed to allow OpenSSH" $LINENO
-ufw allow 19999 || display_error "Failed to allow Netdata" $LINENO
+#ufw allow 19999 || display_error "Failed to allow Netdata" $LINENO
 
 # Install MySQL
 echo -e "\e[1;32m******************************************\e[0m"
@@ -329,25 +329,25 @@ fi
 service php$php_version-fpm reload
 
 # Install Netdata monitoring tool
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mInstalling Netdata monitoring tool...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
-sleep 3
-wget -O /tmp/netdata-kickstart.sh https://get.netdata.cloud/kickstart.sh && sh /tmp/netdata-kickstart.sh --non-interactive || display_error "Failed to install Netdata" $LINENO
-systemctl enable --now netdata || display_error "Failed to enable netdata" $LINENO
-systemctl restart netdata || display_error "Failed to restart netdata" $LINENO
+#echo -e "\e[1;32m******************************************\e[0m"
+#echo -e "\e[1;32mInstalling Netdata monitoring tool...\e[0m"
+#echo -e "\e[1;32m******************************************\e[0m"
+#sleep 3
+#wget -O /tmp/netdata-kickstart.sh https://get.netdata.cloud/kickstart.sh && sh /tmp/netdata-kickstart.sh --non-interactive || display_error "Failed to install Netdata" $LINENO
+#systemctl enable --now netdata || display_error "Failed to enable netdata" $LINENO
+#systemctl restart netdata || display_error "Failed to restart netdata" $LINENO
 #
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mInstalling Glances...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
-sleep 3
-apt install pipx -y || display_error "Failed to install PIPX" $LINENO
-pipx install 'glances[all]' || display_error "Failed to install Glances plugins" $LINENO
-wget -P /etc/systemd/system/ https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/glances.service || display_error "Failed to download Glances service file" $LINENO
+#echo -e "\e[1;32m******************************************\e[0m"
+#echo -e "\e[1;32mInstalling Glances...\e[0m"
+#echo -e "\e[1;32m******************************************\e[0m"
+#sleep 3
+#apt install pipx -y || display_error "Failed to install PIPX" $LINENO
+#pipx install 'glances[all]' || display_error "Failed to install Glances plugins" $LINENO
+#wget -P /etc/systemd/system/ https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/glances.service || display_error "Failed to download Glances service file" $LINENO
 # Enable / start / restart Glances
-systemctl enable --now glances.service || display_error "Failed to enable glances" $LINENO
-systemctl start glances.service || display_error "Failed to start glances" $LINENO
-systemctl restart glances.service || display_error "Failed to restart glances" $LINENO
+#systemctl enable --now glances.service || display_error "Failed to enable glances" $LINENO
+#systemctl start glances.service || display_error "Failed to start glances" $LINENO
+#systemctl restart glances.service || display_error "Failed to restart glances" $LINENO
 
 # Install Fail2Ban
 echo -e "\e[1;32m******************************************\e[0m"
