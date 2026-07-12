@@ -1,80 +1,262 @@
-# SNYT SuperServer
+<div align="center">
 
-A complete Ubuntu and Debian web-server installer maintained by SNYT Hosting.
+# 🚀 SNYT SuperServer
 
-## Supported systems
+### **One Script. Every Server.**
 
-- Ubuntu Server 22.04 LTS
-- Ubuntu Server 24.04 LTS
-- Ubuntu Server 26.04 LTS
-- Debian 11 Bullseye
-- Debian 12 Bookworm
-- Debian 13 Trixie
-- amd64 and arm64 where upstream packages are available
+Build a complete production-ready Linux server in minutes.
 
-The installer detects the Linux distribution and release and architecture automatically. External repositories are only added after their Release metadata is confirmed for the detected distribution codename. When an upstream repository has not published the new Ubuntu release yet, SuperServer safely falls back to distribution packages instead of breaking APT.
+---
 
-## Included software
+![Ubuntu](https://img.shields.io/badge/Ubuntu-22.04%20%7C%2024.04%20%7C%2026.04-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)
+![Debian](https://img.shields.io/badge/Debian-11%20%7C%2012%20%7C%2013-A81D33?style=for-the-badge&logo=debian&logoColor=white)
+![PHP](https://img.shields.io/badge/PHP-8.x-777BB4?style=for-the-badge&logo=php&logoColor=white)
+![Apache](https://img.shields.io/badge/Apache-Supported-D22128?style=for-the-badge&logo=apache&logoColor=white)
+![Nginx](https://img.shields.io/badge/Nginx-Supported-009639?style=for-the-badge&logo=nginx&logoColor=white)
+![MariaDB](https://img.shields.io/badge/MariaDB-Latest-003545?style=for-the-badge&logo=mariadb&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-Latest-DC382D?style=for-the-badge&logo=redis&logoColor=white)
 
-- Apache or Nginx
-- Selectable PHP/PHP-FPM with common extensions
-- MariaDB
-- phpMyAdmin
-- Redis
-- Current Node.js LTS and PM2
-- Python, pip and Django (`--break-system-packages` retained)
-- Composer and Java
-- Certbot with automatic renewal
-- UFW and Fail2ban
-- unattended-upgrades
-- Latest Fastfetch release with SNYT MOTD
-- Add-domain helper: `super-sdomain`
+![License](https://img.shields.io/github/license/abdomuftah/SuperServer?style=flat-square)
+![Stars](https://img.shields.io/github/stars/abdomuftah/SuperServer?style=flat-square)
+![Forks](https://img.shields.io/github/forks/abdomuftah/SuperServer?style=flat-square)
+![Issues](https://img.shields.io/github/issues/abdomuftah/SuperServer?style=flat-square)
 
-## Installation
+</div>
+
+---
+
+# 📖 About
+
+**SuperServer** is an automated Linux server installer created by **SNYT**.
+
+It transforms a fresh Ubuntu or Debian server into a fully configured production environment with just one command.
+
+Perfect for:
+
+- 🌐 Web Servers
+- ☁️ Nextcloud
+- 🎮 Game Servers
+- 💼 Development Servers
+- 📦 Backup Servers
+- 🚀 VPS Deployment
+
+---
+
+# ✨ Features
+
+| Feature | Status |
+|----------|:------:|
+| 🌐 Apache | ✅ |
+| ⚡ Nginx | ✅ |
+| 🐘 PHP-FPM | ✅ |
+| 🗄 MariaDB | ✅ |
+| ☁ phpMyAdmin | ✅ |
+| 🔥 Redis | ✅ |
+| 🔒 Let's Encrypt SSL | ✅ |
+| 🛡 Fail2Ban | ✅ |
+| 🔄 unattended-upgrades | ✅ |
+| 🚀 Fastfetch | ✅ |
+| 🖥 MOTD | ✅ |
+| 📦 Composer | ✅ |
+| 🟢 Node.js LTS | ✅ |
+| ⚙ PM2 | ✅ |
+| 🐍 Python | ✅ |
+
+---
+
+# 🖥 Supported Operating Systems
+
+| Distribution | Supported |
+|--------------|:---------:|
+| Ubuntu 22.04 LTS | ✅ |
+| Ubuntu 24.04 LTS | ✅ |
+| Ubuntu 26.04 LTS | ✅ |
+| Debian 11 | ✅ |
+| Debian 12 | ✅ |
+| Debian 13 | ✅ |
+
+---
+
+# ⚡ Installation
 
 ```bash
 wget https://link.snyt.xyz/SuperServer -O SuperServer.sh
+
 chmod +x SuperServer.sh
+
 sudo ./SuperServer.sh
 ```
 
-Run the installer as `root` on a clean supported Ubuntu Server or Debian installation.
+---
 
-## Credentials and logs
+# 📦 What Gets Installed?
 
-SuperServer generates random database credentials. They are not shown in the final terminal screen.
+<details>
 
-```text
-/root/SNYT/serverInfo.txt
+<summary>🌐 Web Server</summary>
+
+- Apache
+- Nginx
+- HTTP/2
+- Virtual Hosts
+- PHP-FPM
+
+</details>
+
+<details>
+
+<summary>🐘 PHP</summary>
+
+- Latest supported PHP
+- Extensions
+- Optimized php.ini
+- OPcache
+
+</details>
+
+<details>
+
+<summary>🗄 Database</summary>
+
+- MariaDB
+- phpMyAdmin
+
+</details>
+
+<details>
+
+<summary>🛡 Security</summary>
+
+- Fail2Ban
+- UFW
+- unattended-upgrades
+- SSL
+- Secure PHP Configuration
+
+</details>
+
+<details>
+
+<summary>⚡ Performance</summary>
+
+- Redis
+- Fastfetch
+- MOTD
+- Optimized Apache/Nginx
+
+</details>
+
+<details>
+
+<summary>🧰 Developer Tools</summary>
+
+- Composer
+- Git
+- Node.js
+- npm
+- PM2
+- Python
+- pip
+
+</details>
+
+---
+
+# 📁 Project Structure
+
+```
+SuperServer/
+│
+├── assets/
+├── docs/
+├── screenshots/
+├── logo/
+│
+├── SuperServer.sh
+├── README.md
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── SECURITY.md
+└── LICENSE
 ```
 
-The directory uses mode `700` and the information file uses mode `600`.
+---
 
-Installation log:
+# 📸 Screenshots
 
-```text
-/var/log/snyt-superserver.log
-```
+Coming soon...
 
-## Add another domain
+- Installer
+- Apache
+- Nginx
+- Fastfetch
+- MOTD
+- phpMyAdmin
+- Nextcloud
 
-```bash
-sudo super-sdomain
-```
+---
 
-The helper detects the installed PHP-FPM version, creates the virtual host and requests Let's Encrypt SSL when DNS points to the server.
+# 🗺 Roadmap
 
-## Notes
+## ✅ Version 3.1
 
-- MariaDB root keeps the distribution's secure Unix-socket authentication. Use `sudo mariadb` locally.
-- phpMyAdmin uses the generated `snyt_admin` database administrator stored in `serverInfo.txt`.
-- Certbot skips certificate issuance when DNS does not point to the server and prints the command to run later.
-- The installer uses newest stable/compatible releases, not beta or development builds.
+- Ubuntu Support
+- Debian Support
+- Apache
+- Nginx
+- PHP
+- MariaDB
+- Redis
+- phpMyAdmin
+- SSL
+- Fastfetch
+- MOTD
 
-## Repository policy
+---
 
-- Ubuntu uses the Ondřej PHP PPA only when Release metadata exists for the detected codename.
-- Debian uses the Sury PHP repository only when Release metadata exists for the detected codename.
-- Redis uses the official Redis APT repository when available, otherwise the distribution package.
-- Node.js uses the current NodeSource LTS setup.
-- External repositories are never added blindly.
+## 🚧 Version 3.2
+
+- Docker Installer
+- Nextcloud Installer
+- Cloudflare Integration
+- Auto Backup
+- Better PHP Selection
+
+---
+
+## 🔥 Version 4.0
+
+- Pelican Game Panel
+- CasaOS
+- WireGuard
+- Cloudflare Tunnel
+- Monitoring
+- AI Stack
+- Git Server
+- SNYT Dashboard
+
+---
+
+# 🤝 Contributing
+
+Contributions are welcome!
+
+Feel free to open an Issue or submit a Pull Request.
+
+---
+
+# 📜 License
+
+MIT License
+
+---
+
+<div align="center">
+
+Made with ❤️ by **SNYT**
+
+**One Script. Every Server.**
+
+⭐ If you like this project, don't forget to star the repository!
+
+</div>
