@@ -5,7 +5,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-VERSION="3.1.0"
+SUPERSERVER_VERSION="3.1.4"
 REPO_RAW="https://raw.githubusercontent.com/abdomuftah/SuperServer/main"
 INFO_DIR="/root/SNYT"
 INFO_FILE="$INFO_DIR/serverInfo.txt"
@@ -140,7 +140,7 @@ detect_os() {
     VERSION_CODENAME="${VERSION_CODENAME:-${DEBIAN_CODENAME:-}}"
     [[ -n "$VERSION_CODENAME" ]] || display_error "Could not detect distribution codename" "$LINENO"
     ARCH="$(dpkg --print-architecture)"
-    safe_write_info "SuperServer Version" "$VERSION"
+    safe_write_info "SuperServer Version" "$SUPERSERVER_VERSION"
     safe_write_info "Installation Date" "$(date --iso-8601=seconds)"
     safe_write_info "Operating System" "$PRETTY_NAME"
     safe_write_info "Distribution" "$DISTRO_ID"
@@ -254,21 +254,43 @@ install_certbot() {
 
 configure_ssl() {
     section "Configuring Let's Encrypt SSL"
-    local public_ip dns_ips
-    public_ip="$(curl -4fsSL --max-time 10 https://api.ipify.org || true)"
-    dns_ips="$(getent ahostsv4 "$domain" | awk '{print $1}' | sort -u | tr '\n' ' ')"
-    if [[ -z "$dns_ips" || ( -n "$public_ip" && "$dns_ips" != *"$public_ip"* ) ]]; then
-        echo -e "${YELLOW}DNS for $domain does not resolve to this server yet. SSL issuance skipped.${NC}"
-        safe_write_info "SSL Status" "Pending DNS; run: certbot --$web_server -d $domain --redirect"
-        return 0
-    fi
-    if [[ "$web_server" == apache ]]; then
-        certbot --apache --non-interactive --agree-tos --redirect --email "$email" -d "$domain"
+
+    # Do not compare DNS results with the server IP here. A domain proxied through
+    # Cloudflare resolves to Cloudflare addresses, but Let's Encrypt HTTP-01 can
+    # still validate it through the proxy when ports 80/443 are reachable.
+    local certbot_args=(
+        --non-interactive
+        --agree-tos
+        --redirect
+        --email "$email"
+        -d "$domain"
+    )
+
+    if [[ "$web_server" == "apache" ]]; then
+        if certbot --apache "${certbot_args[@]}"; then
+            SSL_ACTIVE=true
+        else
+            SSL_ACTIVE=false
+        fi
     else
-        certbot --nginx --non-interactive --agree-tos --redirect --email "$email" -d "$domain"
+        if certbot --nginx "${certbot_args[@]}"; then
+            SSL_ACTIVE=true
+        else
+            SSL_ACTIVE=false
+        fi
     fi
-    certbot renew --dry-run || echo -e "${YELLOW}Certbot dry-run failed; inspect $LOG_FILE.${NC}"
-    safe_write_info "SSL Status" "Active with automatic renewal"
+
+    if [[ "$SSL_ACTIVE" == true ]]; then
+        certbot renew --dry-run || echo -e "${YELLOW}Certbot dry-run failed; inspect $LOG_FILE.${NC}"
+        safe_write_info "SSL Status" "Active with automatic renewal"
+        safe_write_info "Primary URL" "https://$domain"
+    else
+        echo -e "${YELLOW}SSL could not be issued now. The installation will continue over HTTP.${NC}"
+        echo -e "${YELLOW}Check DNS, Cloudflare, ports 80/443, then run:${NC}"
+        echo "certbot --$web_server -d $domain --redirect"
+        safe_write_info "SSL Status" "Pending; run: certbot --$web_server -d $domain --redirect"
+        safe_write_info "Primary URL" "http://$domain"
+    fi
 }
 
 configure_phpmyadmin() {
@@ -360,7 +382,7 @@ detect_os
 clear
 echo -e "${BLUE}**********************************************${NC}"
 echo -e "${BLUE}*          SNYT SuperServer Setup            *${NC}"
-echo -e "${BLUE}*                  v$VERSION                   *${NC}"
+echo -e "${BLUE}*                  v$SUPERSERVER_VERSION                   *${NC}"
 echo -e "${BLUE}**********************************************${NC}"
 echo "Detected: $PRETTY_NAME ($VERSION_CODENAME / $ARCH)"
 echo
@@ -486,7 +508,8 @@ find "/var/www/html/$domain" -type f -exec chmod 644 {} +
 configure_phpmyadmin
 
 section "Installing Python tools"
-python3 -m pip install --upgrade pip --break-system-packages
+# pip is managed by APT on Ubuntu/Debian. Do not try to uninstall or replace it.
+python3 -m pip --version
 python3 -m pip install --upgrade Django --break-system-packages
 [[ -e /usr/local/bin/python ]] || ln -s "$(command -v python3)" /usr/local/bin/python
 
@@ -502,17 +525,38 @@ if apt-cache show redis >/dev/null 2>&1; then
 else
     apt-get install -y redis-server redis-tools
 fi
-if systemctl list-unit-files | grep -q '^redis-server.service'; then
-    systemctl enable --now redis-server
-else
-    systemctl enable --now redis
+# Redis packages on recent Ubuntu/Debian releases may expose redis.service and
+# redis-server.service as linked aliases. systemctl refuses to enable an alias,
+# while the APT package already configures boot-time activation through its preset.
+systemctl daemon-reload
+
+REDIS_UNIT=""
+for candidate in redis-server.service redis.service; do
+    if systemctl start "$candidate" >/dev/null 2>&1; then
+        REDIS_UNIT="$candidate"
+        break
+    fi
+done
+
+[[ -n "$REDIS_UNIT" ]] || display_error "Redis systemd service could not be started" "$LINENO"
+
+# Confirm Redis is enabled through either the real unit or its alias. If not,
+# apply the package preset without failing the installer on linked unit files.
+if ! systemctl is-enabled redis-server.service >/dev/null 2>&1 \
+   && ! systemctl is-enabled redis.service >/dev/null 2>&1; then
+    systemctl preset redis-server.service >/dev/null 2>&1 \
+        || systemctl preset redis.service >/dev/null 2>&1 \
+        || true
 fi
-redis-cli ping | grep -q PONG
+
+redis-cli ping | grep -q '^PONG$'
+safe_write_info "Redis Service" "$REDIS_UNIT"
 
 configure_firewall
 configure_fail2ban
 configure_unattended_upgrades
 install_fastfetch_motd
+SSL_ACTIVE=false
 configure_ssl
 
 section "Installing add-domain helper"
@@ -537,9 +581,13 @@ chmod 600 "$INFO_FILE"
 
 clear
 echo -e "${MAGENTA}=========================================${NC}"
-echo -e "${MAGENTA}SNYT SuperServer $VERSION installation completed${NC}"
+echo -e "${MAGENTA}SNYT SuperServer $SUPERSERVER_VERSION installation completed${NC}"
 echo -e "${MAGENTA}System: $PRETTY_NAME${NC}"
-echo -e "${MAGENTA}Web: https://$domain${NC}"
+if [[ "${SSL_ACTIVE:-false}" == true ]]; then
+    echo -e "${MAGENTA}Web: https://$domain${NC}"
+else
+    echo -e "${MAGENTA}Web: http://$domain (SSL pending)${NC}"
+fi
 echo -e "${MAGENTA}PHP: $php_version | Server: $web_server${NC}"
 echo -e "${MAGENTA}Credentials: $INFO_FILE${NC}"
 echo -e "${MAGENTA}Log: $LOG_FILE${NC}"
