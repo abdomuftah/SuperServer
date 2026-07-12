@@ -1,452 +1,547 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# SNYT SuperServer
+# Supported: Ubuntu 22.04/24.04/26.04 and Debian 11/12/13
 
-# Function to display error message and exit
+set -Eeuo pipefail
+IFS=$'\n\t'
+
+VERSION="3.1.0"
+REPO_RAW="https://raw.githubusercontent.com/abdomuftah/SuperServer/main"
+INFO_DIR="/root/SNYT"
+INFO_FILE="$INFO_DIR/serverInfo.txt"
+LOG_FILE="/var/log/snyt-superserver.log"
+
+RED='\033[1;31m'; GREEN='\033[1;32m'; BLUE='\033[1;34m'; MAGENTA='\033[1;35m'; YELLOW='\033[1;33m'; NC='\033[0m'
+
+mkdir -p "$INFO_DIR"
+chmod 700 "$INFO_DIR"
+touch "$LOG_FILE"
+chmod 600 "$LOG_FILE"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+trap 'display_error "Unexpected failure" "$LINENO"' ERR
+
 display_error() {
-    echo -e "\e[1;31mError: $1 at line $2\e[0m"
+    local message="${1:-Unknown error}" line="${2:-?}"
+    echo -e "${RED}Error: ${message} at line ${line}${NC}" >&2
+    echo "Review: $LOG_FILE" >&2
     exit 1
 }
 
-# Function to prompt user for input and validate
-get_user_input() {
-    read -p "$1" input
-    if [[ -z "$input" ]]; then
-        display_error "Input cannot be empty" $LINENO
-    fi
-    echo "$input"
+section() {
+    echo -e "\n${GREEN}******************************************${NC}"
+    echo -e "${GREEN}$1${NC}"
+    echo -e "${GREEN}******************************************${NC}"
 }
 
-# Clear the screen
-clear
+require_root() {
+    [[ $EUID -eq 0 ]] || display_error "Run this script as root" "$LINENO"
+}
 
-# Display header
-echo ""
-echo -e "\e[1;34m**********************************************\e[0m"
-echo -e "\e[1;34m*         SNYT Super Server Setup          *\e[0m"
-echo -e "\e[1;34m**********************************************\e[0m"
-echo -e "\e[1;34m* This script will install a Webservice stack *\e[0m"
-echo -e "\e[1;34m*               apache2 Or Nginx              *\e[0m"
-echo -e "\e[1;34m*    with phpMyAdmin, Node.js, and secure     *\e[0m"
-echo -e "\e[1;34m*    your domain with Let's Encrypt SSL.      *\e[0m"
-echo -e "\e[1;34m**********************************************\e[0m"
-echo ""
+get_user_input() {
+    local prompt="$1" input
+    read -r -p "$prompt" input
+    [[ -n "$input" ]] || display_error "Input cannot be empty" "$LINENO"
+    printf '%s' "$input"
+}
 
-# Prompt user for domain, email, and MySQL root password
-domain=$(get_user_input "Set Web Domain (Example: example.com): ")
-email=$(get_user_input "Email for Let's Encrypt SSL: ")
-mysql_root_password=$(get_user_input "Enter MySQL root password: ")
+validate_domain() {
+    [[ "$1" =~ ^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$ ]]
+}
 
-# Prompt user to choose web server
-echo "Choose web server:"
-options=("apache" "nginx")
-select opt in "${options[@]}"
-do
-    case $opt in
-        "apache")
-            web_server="apache"
-            break
+validate_email() {
+    [[ "$1" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]
+}
+
+generate_password() {
+    # 28 characters, URL/shell friendly, cryptographically random.
+    openssl rand -hex 18
+}
+
+safe_write_info() {
+    local key="$1" value="$2"
+    mkdir -p "$INFO_DIR"
+    touch "$INFO_FILE"
+    chmod 600 "$INFO_FILE"
+    if grep -qF "${key}:" "$INFO_FILE" 2>/dev/null; then
+        sed -i "s|^${key}:.*|${key}: ${value}|" "$INFO_FILE"
+    else
+        printf '%s: %s\n' "$key" "$value" >> "$INFO_FILE"
+    fi
+}
+
+backup_file() {
+    local file="$1"
+    [[ -e "$file" ]] || return 0
+    cp -a "$file" "${file}.snyt-backup-$(date +%Y%m%d-%H%M%S)"
+}
+
+fetch_asset() {
+    local asset="$1" target="$2" local_file
+    local_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/assets/$asset"
+    if [[ -f "$local_file" ]]; then
+        install -m 0644 "$local_file" "$target"
+    else
+        curl -fsSL "$REPO_RAW/assets/$asset" -o "$target"
+    fi
+}
+
+check_release_url() {
+    curl -fsI --connect-timeout 8 --max-time 15 "$1" >/dev/null 2>&1
+}
+
+add_launchpad_ppa_if_supported() {
+    local ppa="$1" owner archive release_url
+    [[ "$DISTRO_ID" == "ubuntu" ]] || return 1
+    owner="${ppa#ppa:}"; owner="${owner%%/*}"
+    archive="${ppa##*/}"
+    release_url="https://ppa.launchpadcontent.net/${owner}/${archive}/ubuntu/dists/${VERSION_CODENAME}/Release"
+    if check_release_url "$release_url"; then
+        add-apt-repository -y "$ppa"
+        return 0
+    fi
+    echo -e "${YELLOW}Skipping unsupported PPA $ppa for $VERSION_CODENAME; using distribution packages when possible.${NC}"
+    return 1
+}
+
+configure_debian_sury_php() {
+    [[ "$DISTRO_ID" == "debian" ]] || return 0
+    local release_url="https://packages.sury.org/php/dists/${VERSION_CODENAME}/Release"
+    if ! check_release_url "$release_url"; then
+        echo -e "${YELLOW}Sury PHP does not publish $VERSION_CODENAME; using Debian PHP packages.${NC}"
+        return 1
+    fi
+    install -d -m 0755 /etc/apt/keyrings
+    curl -fsSL https://packages.sury.org/php/apt.gpg -o /etc/apt/keyrings/deb.sury.org-php.gpg
+    chmod 0644 /etc/apt/keyrings/deb.sury.org-php.gpg
+    echo "deb [signed-by=/etc/apt/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ $VERSION_CODENAME main" > /etc/apt/sources.list.d/php-sury.list
+}
+
+detect_os() {
+    [[ -r /etc/os-release ]] || display_error "/etc/os-release is missing" "$LINENO"
+    # shellcheck disable=SC1091
+    source /etc/os-release
+    DISTRO_ID="${ID:-}"
+    case "$DISTRO_ID" in
+        ubuntu)
+            case "${VERSION_ID:-}" in
+                22.04|24.04|26.04) ;;
+                *) display_error "Unsupported Ubuntu version: ${VERSION_ID:-unknown}. Supported: 22.04, 24.04, 26.04" "$LINENO" ;;
+            esac
             ;;
-        "nginx")
-            web_server="nginx"
-            break
+        debian)
+            case "${VERSION_ID:-}" in
+                11|12|13) ;;
+                *) display_error "Unsupported Debian version: ${VERSION_ID:-unknown}. Supported: 11, 12, 13" "$LINENO" ;;
+            esac
             ;;
-        *) echo "Invalid option";;
+        *) display_error "Unsupported distribution: ${DISTRO_ID:-unknown}. Use Ubuntu or Debian." "$LINENO" ;;
     esac
-done
+    VERSION_CODENAME="${VERSION_CODENAME:-${DEBIAN_CODENAME:-}}"
+    [[ -n "$VERSION_CODENAME" ]] || display_error "Could not detect distribution codename" "$LINENO"
+    ARCH="$(dpkg --print-architecture)"
+    safe_write_info "SuperServer Version" "$VERSION"
+    safe_write_info "Installation Date" "$(date --iso-8601=seconds)"
+    safe_write_info "Operating System" "$PRETTY_NAME"
+    safe_write_info "Distribution" "$DISTRO_ID"
+    safe_write_info "Distribution Codename" "$VERSION_CODENAME"
+    safe_write_info "Architecture" "$ARCH"
+    safe_write_info "Hostname" "$(hostname -f 2>/dev/null || hostname)"
+}
 
-# Prompt user for PHP version
-echo "Choose PHP version:"
-php_versions=("7.4" "8.0" "8.1" "8.2" "8.3" "8.4")
-select version in "${php_versions[@]}"
-do
-    case $version in
-        "7.4"|"8.0"|"8.1"|"8.2"|"8.3"|"8.4")
-            php_version=$version
-            break
+choose_web_server() {
+    echo "Choose web server:"
+    select opt in apache nginx; do
+        case "$opt" in apache|nginx) web_server="$opt"; break;; *) echo "Invalid option";; esac
+    done
+}
+
+php_available() {
+    apt-cache show "php$1-cli" >/dev/null 2>&1
+}
+
+choose_php_version() {
+    echo "Choose PHP profile/version:"
+    echo "1) Nextcloud (newest compatible available: prefers 8.4, then 8.3)"
+    echo "2) General / Laravel (newest stable available)"
+    echo "3) Legacy application (PHP 8.2)"
+    echo "4) Choose manually"
+    local choice
+    read -r -p "Selection [1-4]: " choice
+    case "$choice" in
+        1)
+            for v in 8.4 8.3 8.2; do php_available "$v" && { php_version="$v"; break; }; done
             ;;
-        *) echo "Invalid option";;
+        2)
+            for v in 8.5 8.4 8.3 8.2; do php_available "$v" && { php_version="$v"; break; }; done
+            ;;
+        3) php_version="8.2" ;;
+        4)
+            read -r -p "PHP version (example 8.2): " php_version
+            [[ "$php_version" =~ ^[0-9]+\.[0-9]+$ ]] || display_error "Invalid PHP version" "$LINENO"
+            ;;
+        *) display_error "Invalid PHP selection" "$LINENO" ;;
     esac
-done
+    [[ -n "${php_version:-}" ]] || display_error "No supported PHP package was found" "$LINENO"
+    php_available "$php_version" || display_error "PHP $php_version is not available for this Ubuntu/repository combination" "$LINENO"
+}
 
-# Update system packages
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mUpdating system packages...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
-sleep 3
-apt update && apt upgrade -y || display_error "Failed to update system packages" $LINENO
-apt autoremove -y || display_error "Failed to autoremove packages" $LINENO
+configure_unattended_upgrades() {
+    section "Configuring automatic security updates"
+    apt-get install -y unattended-upgrades apt-listchanges
+    cat > /etc/apt/apt.conf.d/20auto-upgrades <<'CONF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";
+CONF
+    systemctl enable --now unattended-upgrades.service || true
+}
 
-# Install required packages and repositories
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mInstalling required packages and repositories...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
-sleep 3
-apt-get install -y default-jdk software-properties-common dialog || display_error "Failed to install packages" $LINENO
-add-apt-repository -y ppa:ondrej/php || display_error "Failed to add PHP repository" $LINENO
-add-apt-repository -y ppa:deadsnakes/ppa || display_error "Failed to add deadsnakes repository" $LINENO
-add-apt-repository -y ppa:redislabs/redis || display_error "Failed to add Redis repository" $LINENO
-apt update && apt upgrade -y || display_error "Failed to update system packages after adding repositories" $LINENO
+install_fastfetch_motd() {
+    section "Installing SNYT Fastfetch and MOTD"
+    local api asset_url="" tmp="/tmp/fastfetch.deb" pattern
+    apt-get install -y jq figlet
+    case "$ARCH" in
+        amd64) pattern='linux-amd64.deb$' ;;
+        arm64) pattern='linux-aarch64.deb$' ;;
+        *) pattern='' ;;
+    esac
+    if [[ -n "$pattern" ]]; then
+        api="$(curl -fsSL https://api.github.com/repos/fastfetch-cli/fastfetch/releases/latest || true)"
+        asset_url="$(jq -r --arg p "$pattern" '.assets[] | select(.name|test($p)) | .browser_download_url' <<<"$api" | head -n1)"
+    fi
+    if [[ -n "$asset_url" && "$asset_url" != "null" ]]; then
+        curl -fsSL "$asset_url" -o "$tmp"
+        apt-get install -y "$tmp" || dpkg -i "$tmp" || apt-get -f install -y
+        rm -f "$tmp"
+    else
+        apt-get install -y fastfetch || echo "Fastfetch package unavailable; MOTD will use standard system information."
+    fi
 
-# Install additional tools
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mInstalling additional tools...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
-sleep 3
-apt install -y screen nano curl git zip unzip ufw || display_error "Failed to install additional tools" $LINENO
-apt install -y python3.11 libmysqlclient-dev python3-dev python3-pip || display_error "Failed to install Python tools" $LINENO
-ln -s /usr/bin/python3.11 /usr/bin/python || display_error "Failed to create symlink for Python" $LINENO
-# installed by Debian 
-#curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py && python3 get-pip.py --break-system-packages || display_error "Failed to install Python pip" $LINENO
-#rm get-pip.py || display_error "Failed to remove get-pip.py" $LINENO
-python3 -m pip install Django --break-system-packages || display_error "Failed to install Django" $LINENO
+    mkdir -p /etc/snyt
+    cat > /etc/snyt/fastfetch.jsonc <<'JSON'
+{
+  "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+  "logo": { "type": "small", "padding": { "top": 1, "right": 2 } },
+  "display": { "separator": "  ➜  " },
+  "modules": [
+    { "type": "title", "format": "SNYT Hosting • {user-name}@{host-name}" },
+    "separator", "os", "host", "kernel", "uptime", "packages", "shell", "terminal",
+    "cpu", "memory", "swap", "disk", "localip", "break", "colors"
+  ]
+}
+JSON
+    cat > /etc/update-motd.d/01-snyt <<'MOTD'
+#!/usr/bin/env bash
+printf '\n'
+if command -v figlet >/dev/null 2>&1; then figlet -f slant SNYT 2>/dev/null; else echo '=== SNYT Hosting ==='; fi
+printf 'Managed by SNYT SuperServer\n\n'
+if command -v fastfetch >/dev/null 2>&1; then fastfetch --config /etc/snyt/fastfetch.jsonc; fi
+printf '\n'
+MOTD
+    chmod +x /etc/update-motd.d/01-snyt
+}
 
-# Install the chosen web server
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mInstalling $web_server...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
-sleep 3
+install_certbot() {
+    section "Installing Certbot and automatic renewal"
+    if [[ "$web_server" == apache ]]; then
+        apt-get install -y certbot python3-certbot-apache
+    else
+        apt-get install -y certbot python3-certbot-nginx
+    fi
+    systemctl enable --now certbot.timer 2>/dev/null || true
+}
 
-if [[ "$web_server" == "apache" ]]; then
-    add-apt-repository -y ppa:ondrej/apache2 || display_error "Failed to add apache2 repository" $LINENO    
-    apt update && apt upgrade -y 
-    apt install -y apache2 || display_error "Failed to install apache2" $LINENO
-    systemctl enable apache2 || display_error "Failed to enable apache2" $LINENO
-    apt install -y python3-certbot-apache certbot || display_error "Failed to install Certbot for apache" $LINENO
-    
-    # Start apache
-    systemctl start apache2 || display_error "Failed to start apache2" $LINENO
-    
-elif [[ "$web_server" == "nginx" ]]; then
-    add-apt-repository -y ppa:ondrej/nginx-mainline || display_error "Failed to add Nginx repository" $LINENO
-    apt update && apt upgrade -y 
-    apt install -y nginx || display_error "Failed to install Nginx" $LINENO
-    systemctl enable --now nginx || display_error "Failed to enable Nginx" $LINENO
-    apt install -y python3-certbot-nginx certbot || display_error "Failed to install Certbot for Nginx" $LINENO
-    
-    # Start Nginx 
-    systemctl start nginx || display_error "Failed to start Nginx" $LINENO
-else
-    display_error "Invalid web server choice" $LINENO
-fi
+configure_ssl() {
+    section "Configuring Let's Encrypt SSL"
+    local public_ip dns_ips
+    public_ip="$(curl -4fsSL --max-time 10 https://api.ipify.org || true)"
+    dns_ips="$(getent ahostsv4 "$domain" | awk '{print $1}' | sort -u | tr '\n' ' ')"
+    if [[ -z "$dns_ips" || ( -n "$public_ip" && "$dns_ips" != *"$public_ip"* ) ]]; then
+        echo -e "${YELLOW}DNS for $domain does not resolve to this server yet. SSL issuance skipped.${NC}"
+        safe_write_info "SSL Status" "Pending DNS; run: certbot --$web_server -d $domain --redirect"
+        return 0
+    fi
+    if [[ "$web_server" == apache ]]; then
+        certbot --apache --non-interactive --agree-tos --redirect --email "$email" -d "$domain"
+    else
+        certbot --nginx --non-interactive --agree-tos --redirect --email "$email" -d "$domain"
+    fi
+    certbot renew --dry-run || echo -e "${YELLOW}Certbot dry-run failed; inspect $LOG_FILE.${NC}"
+    safe_write_info "SSL Status" "Active with automatic renewal"
+}
 
-# Configure firewall
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mConfiguring firewall...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
+configure_phpmyadmin() {
+    section "Installing and securing phpMyAdmin"
+    pma_app_password="$(generate_password)"
+    export DEBIAN_FRONTEND=noninteractive
+    echo "phpmyadmin phpmyadmin/dbconfig-install boolean true" | debconf-set-selections
+    echo "phpmyadmin phpmyadmin/mysql/app-pass password $pma_app_password" | debconf-set-selections
+    echo "phpmyadmin phpmyadmin/app-password-confirm password $pma_app_password" | debconf-set-selections
+    echo "phpmyadmin phpmyadmin/reconfigure-webserver multiselect none" | debconf-set-selections
+    apt-get install -y phpmyadmin
 
-if [[ "$web_server" == "apache" ]]; then
-    ufw allow in 80 || display_error "Failed to allow port 80" $LINENO
-    ufw allow in 443 || display_error "Failed to allow port 443" $LINENO
-else
-    ufw allow 'Nginx Full' || display_error "Failed to allow Nginx Full profile" $LINENO
-    ufw allow 9000 || display_error "Failed to allow port 9000" $LINENO
-fi
-#ufw allow in 61208 || display_error "Failed to allow port 61208" $LINENO
-ufw allow OpenSSH || display_error "Failed to allow OpenSSH" $LINENO
-#ufw allow 19999 || display_error "Failed to allow Netdata" $LINENO
+    if [[ "$web_server" == apache ]]; then
+        [[ -e /etc/apache2/conf-enabled/phpmyadmin.conf ]] || ln -s /etc/phpmyadmin/apache.conf /etc/apache2/conf-enabled/phpmyadmin.conf
+        apache2ctl configtest
+        systemctl reload apache2
+    else
+        cat > /etc/nginx/snippets/phpmyadmin.conf <<'EOF_PMA'
+location /phpmyadmin {
+    root /usr/share/;
+    index index.php index.html index.htm;
+    location ~ ^/phpmyadmin/(.+\.php)$ {
+        try_files $uri =404;
+        root /usr/share/;
+        fastcgi_pass unix:/run/php/phpPHPVERSION-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+    location ~* ^/phpmyadmin/(.+\.(jpg|jpeg|gif|css|png|js|ico|html|xml|txt))$ { root /usr/share/; }
+}
+EOF_PMA
+        sed -i "s/PHPVERSION/$php_version/g" /etc/nginx/snippets/phpmyadmin.conf
+        grep -q 'snippets/phpmyadmin.conf' "/etc/nginx/sites-available/$domain.conf" || sed -i '/server_name/a\\    include snippets/phpmyadmin.conf;' "/etc/nginx/sites-available/$domain.conf"
+        nginx -t && systemctl reload nginx
+    fi
+    safe_write_info "phpMyAdmin URL" "https://$domain/phpmyadmin"
+    safe_write_info "phpMyAdmin Database App Password" "$pma_app_password"
+}
 
-# Install MySQL
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mInstalling MySQL...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
-apt -y install mariadb-server mariadb-client || display_error "Failed to install MySQL" $LINENO
-
-# Secure MariaDB installation
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mSecuring MariaDB installation...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
-mysql_secure_installation <<EOF
-Y
-$mysql_root_password
-$mysql_root_password
-Y
-Y
-Y
-Y
-EOF
-
-# Restart MariaDB service
-systemctl restart mariadb || display_error "Failed to restart MariaDB" $LINENO
-echo -e "\e[1;32mMariaDB has been successfully installed and secured.\e[0m"
-
-# Install PHP and required modules
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mInstalling PHP $php_version + modules...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
-sleep 3
-apt -y install php$php_version php$php_version-curl php$php_version-common php$php_version-cli php$php_version-mysql php$php_version-redis php$php_version-simplexml php$php_version-sqlite3 php$php_version-readline php$php_version-intl php$php_version-iconv php$php_version-ctype php$php_version-gd php$php_version-tokenizer php$php_version-mbstring php$php_version-fileinfo php$php_version-fpm php$php_version-dom php$php_version-xml php$php_version-zip php$php_version-bcmath libapache2-mod-php$php_version php$php_version-sqlite3 php$php_version-gd php$php_version-intl php$php_version-xmlrpc php$php_version-soap php$php_version-bz2 php$php_version-imagick php$php_version-tidy tar sed  || display_error "Failed to install PHP and extensions" $LINENO
-update-alternatives --set php /usr/bin/php$php_version || display_error "Failed to set PHP version" $LINENO
-update-alternatives --set phar /usr/bin/phar$php_version || display_error "Failed to set phar version" $LINENO
-update-alternatives --set phar.phar /usr/bin/phar.phar$php_version || display_error "Failed to set phar.phar version" $LINENO
-systemctl enable --now php$php_version-fpm || display_error "Failed to enable PHP $php_version FPM service"
-
-# Configure PHP-FPM for apache
-if [[ "$web_server" == "apache" ]]; then
-    echo -e "\e[1;32m******************************************\e[0m"
-    echo -e "\e[1;32mConfiguring PHP-FPM for apache...\e[0m"
-    echo -e "\e[1;32m******************************************\e[0m"
-    a2enconf php$php_version-fpm || display_error "Failed to enable PHP-FPM configuration" $LINENO
-    a2enmod proxy_fcgi setenvif || display_error "Failed to enable apache modules" $LINENO
-    systemctl restart apache2 || display_error "Failed to restart apache2" $LINENO
-
-fi
-
-# Install and configure phpMyAdmin
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mInstalling phpMyAdmin...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
-sleep 2
-echo "phpmyadmin phpmyadmin/dbconfig-install boolean true" | debconf-set-selections
-echo "phpmyadmin phpmyadmin/mysql/admin-pass password $mysql_root_password" | debconf-set-selections
-echo "phpmyadmin phpmyadmin/mysql/app-pass password $mysql_root_password" | debconf-set-selections
-echo "phpmyadmin phpmyadmin/reconfigure-webserver multiselect none" | debconf-set-selections
-# installing phpMyAdmin
-apt install -y phpmyadmin  || display_error "Failed to install phpMyAdmin" $LINENO
-
-# Configure PHP
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mConfiguring PHP...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
-wget https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/php.ini || display_error "Failed to download PHP configuration file" $LINENO
-#
-cp -f php.ini /etc/php/$php_version/fpm/ || display_error "Failed to move PHP configuration file to FPM directory" $LINENO
-if [[ "$web_server" == "apache" ]]; then
-cp -f php.ini /etc/php/$php_version/cli/ || display_error "Failed to copy PHP configuration file to CLI directory " $LINENO
-mv -f php.ini /etc/php/$php_version/apache2/ || display_error "Failed to copy PHP configuration file to CLI directory Apache2" $LINENO
-
-    systemctl restart apache2
-else
-mv -f php.ini /etc/php/$php_version/cli/ || display_error "Failed to copy PHP configuration file to CLI directory Nginx" $LINENO
-
-    systemctl restart nginx
-fi
-service php$php_version-fpm reload
-
-# Reset MySQL root password if needed
-mysql -u root <<MYSQL_SCRIPT
-ALTER USER 'root'@'localhost' IDENTIFIED BY '$mysql_root_password';
+configure_mariadb() {
+    section "Installing and securing MariaDB"
+    apt-get install -y mariadb-server mariadb-client
+    systemctl enable --now mariadb
+    mysql_admin_user="snyt_admin"
+    mysql_admin_password="$(generate_password)"
+    mysql --protocol=socket <<SQL
+DELETE FROM mysql.user WHERE User='';
+DROP DATABASE IF EXISTS test;
+DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+CREATE USER IF NOT EXISTS '${mysql_admin_user}'@'localhost' IDENTIFIED BY '${mysql_admin_password}';
+ALTER USER '${mysql_admin_user}'@'localhost' IDENTIFIED BY '${mysql_admin_password}';
+GRANT ALL PRIVILEGES ON *.* TO '${mysql_admin_user}'@'localhost' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
-MYSQL_SCRIPT
+SQL
+    safe_write_info "MariaDB Root Authentication" "unix_socket (use: sudo mariadb)"
+    safe_write_info "MariaDB Admin User" "$mysql_admin_user"
+    safe_write_info "MariaDB Admin Password" "$mysql_admin_password"
+    safe_write_info "MariaDB Version" "$(mariadb --version | head -n1)"
+}
 
-# Restart MariaDB service
-systemctl restart mariadb || display_error "Failed to restart MariaDB"
-echo -e "\e[1;32mMariaDB has been successfully installed and secured.\e[0m"
+configure_firewall() {
+    section "Configuring UFW firewall"
+    ufw default deny incoming
+    ufw default allow outgoing
+    if ufw app info OpenSSH >/dev/null 2>&1; then
+        ufw allow OpenSSH
+    else
+        ufw allow 22/tcp
+    fi
+    ufw allow 80/tcp
+    ufw allow 443/tcp
+    ufw --force enable
+}
 
-# Configure apache or Nginx 
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mConfiguring $web_server ...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
-sleep 2
-mkdir -p /var/www/html/$domain
-chown -R $USER:$USER /var/www/html/$domain
-chmod -R 755 /var/www
-if [[ "$web_server" == "apache" ]]; then
-    echo -e "\e[1;32m******************************************\e[0m"
-    echo -e "\e[1;32mConfiguring apache2 virtual host...\e[0m"
-    echo -e "\e[1;32m******************************************\e[0m"
-    sleep 3
-    # Downloadig Index File
-    wget -P /var/www/html/$domain https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/ApacheIndex.php || display_error "Failed to download index.php" $LINENO
-    mv /var/www/html/$domain/ApacheIndex.php /var/www/html/$domain/index.php
-    sed -i "s/example.com/$domain/g" /var/www/html/$domain/index.php || display_error "Failed to replace domain in index.php" $LINENO
-    # Downloadning conf file
-    wget -P /etc/apache2/sites-available https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/ApacheExample.conf || display_error "Failed to download Apache2 configuration file"
-    mv /etc/apache2/sites-available/ApacheExample.conf /etc/apache2/sites-available/$domain.conf
-    sed -i "s/example.com/$domain/g" /etc/apache2/sites-available/$domain.conf
-    # enable and restart
-    a2enmod rewrite
-    a2ensite $domain.conf
-    systemctl restart apache2
-else
-    echo -e "\e[1;32m******************************************\e[0m"
-    echo -e "\e[1;32mConfiguring Nginx virtual host...\e[0m"
-    echo -e "\e[1;32m******************************************\e[0m"
-    sleep 3
-    # Downloadig Index File
-    wget -P /var/www/html/$domain https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/nginxIndex.php || display_error "Failed to download index.php" $LINENO
-    mv /var/www/html/$domain/nginxIndex.php /var/www/html/$domain/index.php
-    sed -i "s/example.com/$domain/g" /var/www/html/$domain/index.php || display_error "Failed to replace domain in index.php" $LINENO
-    # Downloadning conf file
-    wget -P /etc/nginx/sites-available https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/nginxExample.conf || display_error "Failed to download Nginx configuration file"
-    mv /etc/nginx/sites-available/nginxExample.conf /etc/nginx/sites-available/$domain.conf
-    sed -i "s/example.com/$domain/g" /etc/nginx/sites-available/$domain.conf
-    sed -i "s/phpversion/$php_version/g" /etc/nginx/sites-available/$domain.conf
-    ln -s /etc/nginx/sites-available/$domain.conf /etc/nginx/sites-enabled/
-    # some configration for nginx
-    mv /etc/nginx/snippets/fastcgi-php.conf /etc/nginx/snippets/back_fastcgi-php.conf
-    wget -P /etc/nginx/snippets/ https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/fastcgi-php.conf || display_error "Failed to download FastCGI PHP configuration file" $LINENO
-    mv /etc/nginx/nginx.conf /etc/nginx/Back_nginx.conf
-    wget -P /etc/nginx/ https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/nginx.conf || display_error "Failed to download Nginx configuration file" $LINENO
-    # Start Nginx
-    systemctl start nginx || display_error "Failed to start Nginx" $LINENO
-    nginx -t && systemctl reload nginx || display_error "Failed to configure Nginx" $LINENO
-    systemctl restart nginx || display_error "Failed to restart Nginx" $LINENO
-fi
+configure_fail2ban() {
+    section "Installing and configuring Fail2ban"
+    apt-get install -y fail2ban
+    if [[ "$web_server" == apache ]]; then
+        fetch_asset Apachejail.local /etc/fail2ban/jail.local
+    else
+        fetch_asset Nginxjail.local /etc/fail2ban/jail.local
+    fi
+    systemctl enable --now fail2ban
+    fail2ban-client ping
+}
 
-service php$php_version-fpm reload
-
-# Install Node.js
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mInstalling Node.js...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
-sleep 3
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo bash -  || display_error "Failed to setup Node.js repository" $LINENO
-apt install -y nodejs || display_error "Failed to install Node.js" $LINENO
-npm install pm2@latest -g || display_error "Failed to install PM2" $LINENO
-pm2 startup systemd || display_error "Failed to configure PM2 startup" $LINENO
-apt-get install -y gcc g++ make composer || display_error "Failed to configure gcc" $LINENO
-# 
-apt update -y && apt upgrade -y
-if [[ "$web_server" == "apache" ]]; then
-    systemctl restart apache2
-else
-    systemctl restart nginx
-fi
-service php$php_version-fpm reload
-# Install Redis
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mInstalling Redis...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
-sleep 3
-apt install -y redis-server || display_error "Failed to install Redis" $LINENO
-systemctl enable --now redis-server || display_error "Failed to enable Redis" $LINENO
-systemctl start redis-server || display_error "Failed to start Redis" $LINENO
-systemctl status redis-server || display_error "Redis service is not running at line $LINENO" $LINENO
-#
-# Enable UFW
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mEnabling UFW...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
-sleep 3
-ufw enable || display_error "Failed to enable UFW" $LINENO
-ufw reload || display_error "Failed to reload UFW" $LINENO
-#
-apt update -y && apt upgrade -y
-if [[ "$web_server" == "apache" ]]; then
-    systemctl restart apache2
-else
-    systemctl restart nginx
-fi
-service php$php_version-fpm reload
-
-# Install Netdata monitoring tool
-#echo -e "\e[1;32m******************************************\e[0m"
-#echo -e "\e[1;32mInstalling Netdata monitoring tool...\e[0m"
-#echo -e "\e[1;32m******************************************\e[0m"
-#sleep 3
-#wget -O /tmp/netdata-kickstart.sh https://get.netdata.cloud/kickstart.sh && sh /tmp/netdata-kickstart.sh --non-interactive || display_error "Failed to install Netdata" $LINENO
-#systemctl enable --now netdata || display_error "Failed to enable netdata" $LINENO
-#systemctl restart netdata || display_error "Failed to restart netdata" $LINENO
-#
-#echo -e "\e[1;32m******************************************\e[0m"
-#echo -e "\e[1;32mInstalling Glances...\e[0m"
-#echo -e "\e[1;32m******************************************\e[0m"
-#sleep 3
-#apt install pipx -y || display_error "Failed to install PIPX" $LINENO
-#pipx install 'glances[all]' || display_error "Failed to install Glances plugins" $LINENO
-#wget -P /etc/systemd/system/ https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/glances.service || display_error "Failed to download Glances service file" $LINENO
-# Enable / start / restart Glances
-#systemctl enable --now glances.service || display_error "Failed to enable glances" $LINENO
-#systemctl start glances.service || display_error "Failed to start glances" $LINENO
-#systemctl restart glances.service || display_error "Failed to restart glances" $LINENO
-
-# Install Fail2Ban
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mInstalling Fail2Ban...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
-sleep 3
-apt install -y fail2ban || display_error "Failed to install Fail2Ban" $LINENO
-
-# Create Fail2Ban local configuration file
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mConfiguring Fail2Ban...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
-sleep 3
-
-    # Create Fail2Ban local configuration
-
-if [[ $web_server == "apache" ]]; then
-    wget -O jail.local https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/Apachejail.local || display_error "Failed to download Apache Fail2Ban" $LINENO
-elif [[ $web_server == "nginx" ]]; then
-    wget -O jail.local https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/Nginxjail.local || display_error "Failed to download Nginx Fail2Ban" $LINENO
-fi
-mv jail.local /etc/fail2ban/jail.local
-
-# Enable Fail2Ban service
-systemctl enable fail2ban || display_error "Failed to enable Fail2Ban service" $LINENO
-systemctl start fail2ban || display_error "Failed to start Fail2Ban service" $LINENO
-
-echo -e "\e[1;32mFail2Ban has been successfully installed and configured.\e[0m"
-
-
-# Configure SSL with Let's Encrypt
-echo -e "\e[1;32m******************************************\e[0m"
-echo -e "\e[1;32mConfiguring SSL with Let's Encrypt...\e[0m"
-echo -e "\e[1;32m******************************************\e[0m"
-if [[ "$web_server" == "apache" ]]; then
-    certbot --apache --non-interactive --agree-tos --redirect --hsts --staple-ocsp --email $email -d $domain  || display_error "Failed to configure SSL with Let's Encrypt for apache" $LINENO
-else
-    certbot --nginx --non-interactive --agree-tos --redirect --hsts --staple-ocsp --email $email -d $domain || display_error "Failed to configure SSL with Let's Encrypt for Nginx" $LINENO
-fi
-
-# Start UFW
-ufw status || display_error "Failed to check UFW status" $LINENO
-
-# Set PHP version
-if [[ "$web_server" == "apache" ]]; then
-    a2enmod php$php_version
-fi
-update-alternatives --set php /usr/bin/php$php_version
-if [[ "$web_server" == "apache" ]]; then
-    systemctl restart apache2 || display_error "Failed to restart $web_server service" $LINENO
-else
-    # Install nginx-ui
-    echo -e "\e[1;32m******************************************\e[0m"
-    echo -e "\e[1;32mInstalling nginx-ui...\e[0m"
-    echo -e "\e[1;32m******************************************\e[0m"
-    sleep 3
-    
-    bash <(curl -L -s https://raw.githubusercontent.com/0xJacky/nginx-ui/master/install.sh) install
-    # Restart nginx
-    systemctl restart nginx || display_error "Failed to restart $web_server service" $LINENO
-fi
-service php$php_version-fpm reload
-
-# Download and execute the appropriate script based on the web server
-if [[ $web_server == "apache" ]]; then
-    wget -O super-sdomain.sh https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/apache_setup.sh || display_error "Failed to download Apache setup script" $LINENO
-elif [[ $web_server == "nginx" ]]; then
-    wget -O super-sdomain.sh https://raw.githubusercontent.com/abdomuftah/SuperServer/main/assets/nginx_setup.sh || display_error "Failed to download Nginx setup script" $LINENO
-fi
-
-# Set permissions
-sed -i "s/email@email.com/$email/g" super-sdomain.sh || display_error "Failed to replace Email  in super-sdomain.sh" $LINENO
-chmod +x super-sdomain.sh || display_error "Failed to set execute permissions for super-sdomain.sh" $LINENO
-
-#
-apt update && apt upgrade -y
+require_root
+detect_os
 clear
-echo -e "\e[1;35m=========================================\e[0m"
-DISTRO=$(cat /etc/*-release | grep "^ID=" | grep -E -o "[a-z]\w+")
-echo -e "\e[1;35mYour operating system is\e[0m" "$DISTRO"
-echo -e "\e[1;35m=========================================\e[0m"
-echo -e "\e[1;35mCurrent PHP version of this system:\e[0m" "$php_version" 
-#
-echo -e "\e[1;35m##################################\e[0m"
-echo -e "\e[1;35mYou can thank me on:\e[0m"
-echo -e "\e[1;35mhttps://twitter.com/ScarNaruto\e[0m"
-echo -e "\e[1;35mJoin my Discord Server:\e[0m"
-echo -e "\e[1;35mhttps://discord.snyt.xyz\e[0m"
-echo -e "\e[1;35m##################################\e[0m"
-echo -e "\e[1;35mYou can add a new domain to your server\e[0m"
-echo -e "\e[1;35mby typing: ./super-sdomain.sh in the terminal\e[0m"
-echo -e "\e[1;35m----------------------------------\e[0m"
-echo -e "\e[1;35mphpMyAdmin Credentials:\e[0m"
-echo -e "\e[1;35mUsername: root\e[0m"
-echo -e "\e[1;35mPassword: $mysql_root_password\e[0m"
-echo -e "\e[1;35m----------------------------------\e[0m"
-echo -e "\e[1;35mCheck your web server by going to this link:\e[0m"
-echo -e "\e[1;35mhttps://$domain\e[0m"
-#
-rm SuperServer.sh
-#
-exit
+echo -e "${BLUE}**********************************************${NC}"
+echo -e "${BLUE}*          SNYT SuperServer Setup            *${NC}"
+echo -e "${BLUE}*                  v$VERSION                   *${NC}"
+echo -e "${BLUE}**********************************************${NC}"
+echo "Detected: $PRETTY_NAME ($VERSION_CODENAME / $ARCH)"
+echo
+
+domain="$(get_user_input 'Set Web Domain (example.com): ')"
+validate_domain "$domain" || display_error "Invalid domain format" "$LINENO"
+email="$(get_user_input "Email for Let's Encrypt SSL: ")"
+validate_email "$email" || display_error "Invalid email format" "$LINENO"
+choose_web_server
+
+section "Updating system packages"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get dist-upgrade -y
+apt-get autoremove -y
+base_packages=(
+    ca-certificates curl wget gnupg lsb-release software-properties-common dialog openssl jq
+    screen nano git zip unzip ufw default-jdk python3 python3-dev python3-pip gcc g++ make composer
+)
+if apt-cache show default-libmysqlclient-dev >/dev/null 2>&1; then
+    base_packages+=(default-libmysqlclient-dev)
+elif apt-cache show libmysqlclient-dev >/dev/null 2>&1; then
+    base_packages+=(libmysqlclient-dev)
+fi
+apt-get install -y "${base_packages[@]}"
+
+section "Configuring current repositories"
+if [[ "$DISTRO_ID" == "ubuntu" ]]; then
+    add_launchpad_ppa_if_supported ppa:ondrej/php || true
+    if [[ "$web_server" == apache ]]; then
+        add_launchpad_ppa_if_supported ppa:ondrej/apache2 || true
+    else
+        add_launchpad_ppa_if_supported ppa:ondrej/nginx-mainline || true
+    fi
+else
+    configure_debian_sury_php || true
+fi
+# Redis official repository; fall back to Ubuntu if the current codename is not published.
+if check_release_url "https://packages.redis.io/deb/dists/$VERSION_CODENAME/Release"; then
+    curl -fsSL https://packages.redis.io/gpg | gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
+    chmod 644 /usr/share/keyrings/redis-archive-keyring.gpg
+    echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $VERSION_CODENAME main" > /etc/apt/sources.list.d/redis.list
+else
+    echo -e "${YELLOW}Redis upstream repository does not publish $VERSION_CODENAME yet; using the distribution Redis package.${NC}"
+fi
+apt-get update
+choose_php_version
+
+section "Installing $web_server"
+if [[ "$web_server" == apache ]]; then
+    apt-get install -y apache2
+    systemctl enable --now apache2
+else
+    apt-get install -y nginx
+    systemctl enable --now nginx
+fi
+install_certbot
+
+configure_mariadb
+
+section "Installing PHP $php_version and extensions"
+php_packages=(
+    "php$php_version" "php$php_version-cli" "php$php_version-common" "php$php_version-fpm"
+    "php$php_version-curl" "php$php_version-mysql" "php$php_version-redis" "php$php_version-sqlite3"
+    "php$php_version-intl" "php$php_version-gd" "php$php_version-mbstring" "php$php_version-xml"
+    "php$php_version-zip" "php$php_version-bcmath" "php$php_version-soap" "php$php_version-bz2"
+    "php$php_version-imagick" "php$php_version-tidy" "php$php_version-opcache"
+)
+available_php_packages=()
+missing_php_packages=()
+for package in "${php_packages[@]}"; do
+    if apt-cache show "$package" >/dev/null 2>&1; then
+        available_php_packages+=("$package")
+    else
+        missing_php_packages+=("$package")
+    fi
+done
+[[ ${#available_php_packages[@]} -gt 0 ]] || display_error "No PHP $php_version packages are available" "$LINENO"
+apt-get install -y "${available_php_packages[@]}"
+if [[ ${#missing_php_packages[@]} -gt 0 ]]; then
+    echo -e "${YELLOW}Optional PHP packages unavailable and skipped: ${missing_php_packages[*]}${NC}"
+fi
+update-alternatives --set php "/usr/bin/php$php_version"
+systemctl enable --now "php$php_version-fpm"
+if [[ "$web_server" == apache ]]; then
+    a2dismod "php$php_version" 2>/dev/null || true
+    a2enmod proxy_fcgi setenvif rewrite headers ssl http2
+    a2enconf "php$php_version-fpm"
+fi
+
+section "Applying PHP configuration"
+for sapi in cli fpm apache2; do
+    ini="/etc/php/$php_version/$sapi/php.ini"
+    [[ -f "$ini" ]] || continue
+    backup_file "$ini"
+    fetch_asset php.ini "$ini"
+done
+systemctl restart "php$php_version-fpm"
+
+section "Creating website for $domain"
+mkdir -p "/var/www/html/$domain"
+if [[ "$web_server" == apache ]]; then
+    fetch_asset ApacheIndex.php "/var/www/html/$domain/index.php"
+    fetch_asset ApacheExample.conf "/etc/apache2/sites-available/$domain.conf"
+    sed -i "s/example.com/$domain/g" "/var/www/html/$domain/index.php" "/etc/apache2/sites-available/$domain.conf"
+    a2dissite 000-default.conf 2>/dev/null || true
+    a2ensite "$domain.conf"
+    apache2ctl configtest
+    systemctl reload apache2
+else
+    fetch_asset nginxIndex.php "/var/www/html/$domain/index.php"
+    fetch_asset nginxExample.conf "/etc/nginx/sites-available/$domain.conf"
+    sed -i "s/example.com/$domain/g; s/phpversion/$php_version/g" "/var/www/html/$domain/index.php" "/etc/nginx/sites-available/$domain.conf"
+    ln -sfn "/etc/nginx/sites-available/$domain.conf" "/etc/nginx/sites-enabled/$domain.conf"
+    rm -f /etc/nginx/sites-enabled/default
+    nginx -t
+    systemctl reload nginx
+fi
+chown -R www-data:www-data "/var/www/html/$domain"
+find "/var/www/html/$domain" -type d -exec chmod 755 {} +
+find "/var/www/html/$domain" -type f -exec chmod 644 {} +
+
+configure_phpmyadmin
+
+section "Installing Python tools"
+python3 -m pip install --upgrade pip --break-system-packages
+python3 -m pip install --upgrade Django --break-system-packages
+[[ -e /usr/local/bin/python ]] || ln -s "$(command -v python3)" /usr/local/bin/python
+
+section "Installing current Node.js LTS and PM2"
+curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
+apt-get install -y nodejs
+npm install -g pm2@latest
+pm2 startup systemd -u root --hp /root >/tmp/snyt-pm2-startup.txt 2>&1 || true
+
+section "Installing Redis"
+if apt-cache show redis >/dev/null 2>&1; then
+    apt-get install -y redis
+else
+    apt-get install -y redis-server redis-tools
+fi
+if systemctl list-unit-files | grep -q '^redis-server.service'; then
+    systemctl enable --now redis-server
+else
+    systemctl enable --now redis
+fi
+redis-cli ping | grep -q PONG
+
+configure_firewall
+configure_fail2ban
+configure_unattended_upgrades
+install_fastfetch_motd
+configure_ssl
+
+section "Installing add-domain helper"
+if [[ "$web_server" == apache ]]; then
+    fetch_asset apache_setup.sh /usr/local/sbin/super-sdomain
+else
+    fetch_asset nginx_setup.sh /usr/local/sbin/super-sdomain
+fi
+chmod 700 /usr/local/sbin/super-sdomain
+ln -sfn /usr/local/sbin/super-sdomain /root/super-sdomain.sh
+
+safe_write_info "Primary Domain" "$domain"
+safe_write_info "Web Server" "$web_server"
+safe_write_info "Web Server Version" "$(if [[ $web_server == apache ]]; then apache2 -v | head -n1; else nginx -v 2>&1; fi)"
+safe_write_info "PHP Version" "$(php -v | head -n1)"
+safe_write_info "PHP-FPM Socket" "/run/php/php${php_version}-fpm.sock"
+safe_write_info "Redis Version" "$(redis-server --version)"
+safe_write_info "Node.js Version" "$(node --version)"
+safe_write_info "Python Version" "$(python3 --version)"
+safe_write_info "Credentials File" "$INFO_FILE (permissions 600)"
+chmod 600 "$INFO_FILE"
+
+clear
+echo -e "${MAGENTA}=========================================${NC}"
+echo -e "${MAGENTA}SNYT SuperServer $VERSION installation completed${NC}"
+echo -e "${MAGENTA}System: $PRETTY_NAME${NC}"
+echo -e "${MAGENTA}Web: https://$domain${NC}"
+echo -e "${MAGENTA}PHP: $php_version | Server: $web_server${NC}"
+echo -e "${MAGENTA}Credentials: $INFO_FILE${NC}"
+echo -e "${MAGENTA}Log: $LOG_FILE${NC}"
+echo -e "${MAGENTA}Add a domain: super-sdomain${NC}"
+echo -e "${MAGENTA}=========================================${NC}"

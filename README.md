@@ -1,57 +1,80 @@
-# SuperServer
- 
+# SNYT SuperServer
 
+A complete Ubuntu and Debian web-server installer maintained by SNYT Hosting.
 
+## Supported systems
 
-![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)
-![Nginx](https://img.shields.io/badge/nginx-%23009639.svg?style=for-the-badge&logo=nginx&logoColor=white)
-![Apache](https://img.shields.io/badge/apache-%23D42029.svg?style=for-the-badge&logo=apache&logoColor=white)
-![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
-![MariaDB](https://img.shields.io/badge/MariaDB-003545?style=for-the-badge&logo=mariadb&logoColor=white)
-![PHP](https://img.shields.io/badge/php-%23777BB4.svg?style=for-the-badge&logo=php&logoColor=white)
-![Django](https://img.shields.io/badge/django-%23092E20.svg?style=for-the-badge&logo=django&logoColor=white)
-![NPM](https://img.shields.io/badge/NPM-%23CB3837.svg?style=for-the-badge&logo=npm&logoColor=white)
-![NodeJS](https://img.shields.io/badge/node.js-6DA55F?style=for-the-badge&logo=node.js&logoColor=white)
+- Ubuntu Server 22.04 LTS
+- Ubuntu Server 24.04 LTS
+- Ubuntu Server 26.04 LTS
+- Debian 11 Bullseye
+- Debian 12 Bookworm
+- Debian 13 Trixie
+- amd64 and arm64 where upstream packages are available
 
+The installer detects the Linux distribution and release and architecture automatically. External repositories are only added after their Release metadata is confirmed for the detected distribution codename. When an upstream repository has not published the new Ubuntu release yet, SuperServer safely falls back to distribution packages instead of breaking APT.
 
+## Included software
 
- [![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.snyt.xyz)
+- Apache or Nginx
+- Selectable PHP/PHP-FPM with common extensions
+- MariaDB
+- phpMyAdmin
+- Redis
+- Current Node.js LTS and PM2
+- Python, pip and Django (`--break-system-packages` retained)
+- Composer and Java
+- Certbot with automatic renewal
+- UFW and Fail2ban
+- unattended-upgrades
+- Latest Fastfetch release with SNYT MOTD
+- Add-domain helper: `super-sdomain`
 
-## سكربت خاص لاصحاب السيرفرات :
+## Installation
 
-هذا السكربت يقوم بتحميل اخر اصدار من نسخة الاباتشي او الانجنكس ونسخة PHP اختيارية حسب الطلب مع ادوات مساعدة:
+```bash
+wget https://link.snyt.xyz/SuperServer -O SuperServer.sh
+chmod +x SuperServer.sh
+sudo ./SuperServer.sh
+```
 
-عند الانتهاء من التثبيت قم بالدخول على الدومين او الاي بي المرتبط بالسيرفر للحصول على كافة المعلومات :
+Run the installer as `root` on a clean supported Ubuntu Server or Debian installation.
 
+## Credentials and logs
 
-Nginx or Apache2 / Mariadb / PHP + modules / phpMyAdmin / nodeJS / SSL Let's Encrypt / glances 
+SuperServer generates random database credentials. They are not shown in the final terminal screen.
 
-قم بنسخ الامر ال
+```text
+/root/SNYT/serverInfo.txt
+```
 
+The directory uses mode `700` and the information file uses mode `600`.
 
-	wget https://link.snyt.xyz/SuperServer -O SuperServer.sh && chmod +x SuperServer.sh
- 
+Installation log:
 
-ثم قم بتشغيله عن طريق الامر التالي 
+```text
+/var/log/snyt-superserver.log
+```
 
-	./SuperServer.sh
- 
-## Spical Script Server :
+## Add another domain
 
-This script wil install last version form Apache2 or Nginx and your choise from php version with some adutional tools :
+```bash
+sudo super-sdomain
+```
 
-After finishing the installation go to the domain or the ip for the server to learn more :
+The helper detects the installed PHP-FPM version, creates the virtual host and requests Let's Encrypt SSL when DNS points to the server.
 
+## Notes
 
-Nginx or Apache2 / Mariadb / PHP + modules / phpMyAdmin / nodeJS / SSL Let's Encrypt / glances 
+- MariaDB root keeps the distribution's secure Unix-socket authentication. Use `sudo mariadb` locally.
+- phpMyAdmin uses the generated `snyt_admin` database administrator stored in `serverInfo.txt`.
+- Certbot skips certificate issuance when DNS does not point to the server and prints the command to run later.
+- The installer uses newest stable/compatible releases, not beta or development builds.
 
-copy this command : 
+## Repository policy
 
-
-	wget https://link.snyt.xyz/SuperServer -O SuperServer.sh && chmod +x SuperServe
- 
-
-then run it with :
-
-	./SuperServer.sh
- 
+- Ubuntu uses the Ondřej PHP PPA only when Release metadata exists for the detected codename.
+- Debian uses the Sury PHP repository only when Release metadata exists for the detected codename.
+- Redis uses the official Redis APT repository when available, otherwise the distribution package.
+- Node.js uses the current NodeSource LTS setup.
+- External repositories are never added blindly.
