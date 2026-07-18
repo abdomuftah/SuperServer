@@ -1,39 +1,55 @@
 # Changelog
 
-## 3.1.4 - 2026-07-12
+All notable changes to **SNYT SuperServer** are documented here.
 
-- Fixed SuperServer version being overwritten by `/etc/os-release`.
-- Improved Let's Encrypt handling for Cloudflare-proxied domains.
-- SSL failure no longer aborts the complete installation.
-- Final screen now shows HTTP when SSL is still pending.
-- Retained robust Redis linked-service handling.
+## [3.2.0] - 2026-07-19
 
-## 3.1.3
+### Added
 
-- Fixed Redis 8.x systemd linked-unit handling on Ubuntu 26.04 and recent Debian releases.
-- Start Redis through the available alias without calling `systemctl enable` on a linked unit.
-- Use systemd package presets only as a non-fatal fallback.
+- Friendly Apache/Nginx selection with descriptions and confirmation.
+- Automatic detection of the effective OpenSSH port.
+- UFW and Fail2ban configuration for custom SSH ports.
+- Complete PHP-version discovery based on CLI, FPM and required extensions.
+- Exact PHP selection from only complete versions available through APT.
+- PHP CLI/FPM/socket/extension validation.
+- Temporary local web request that confirms the selected PHP version is served by Apache or Nginx.
+- Final required-service validation before installation success is reported.
+- Previous-installation guard with an explicit `--force` testing option.
+- `--version` and `--help` command-line options.
+- NodeSource failure fallback to distribution Node.js packages.
+- phpMyAdmin post-install PHP revalidation.
+- Interactive PHP-FPM selection in both `super-sdomain` helpers.
+- Per-site PHP-FPM socket binding for Apache VirtualHosts.
+- Domain creation history in `/root/SNYT/domains.txt`.
+- Dynamic HTTP/HTTPS phpMyAdmin URL in `serverInfo.txt`.
 
+### Changed
 
-## 3.1.2
+- SuperServer no longer installs the generic `phpX.Y` meta package.
+- PHP core and optional packages are handled separately.
+- Apache always uses PHP-FPM instead of mod_php.
+- The selected PHP alternatives are re-applied after phpMyAdmin installation.
+- Redis repository and service handling are safer on new Ubuntu/Debian releases.
+- Python keeps `--break-system-packages` where supported without trying to replace the APT-managed pip package.
+- Installer output, errors, summary and README were redesigned.
+- Credentials, log and state files use restricted permissions.
 
-- Fixed Redis startup on systems where `redis.service` is a linked alias.
-- SuperServer now resolves and enables the canonical Redis systemd unit automatically.
-- Saves the detected Redis service name in `serverInfo.txt`.
+### Fixed
 
-## 3.1.1
+- Selecting a PHP version whose CLI package existed but whose FPM or required extensions were missing.
+- PHP versions other than 8.2 failing later during FPM service activation.
+- Generic PHP packages pulling an unintended default PHP stack or Apache module.
+- phpMyAdmin URL being recorded as HTTPS when certificate issuance failed.
+- UFW assuming SSH always listens on port 22.
+- Fail2ban using the wrong port on hardened SSH installations.
+- Apache add-domain requests not actually binding the site to the requested PHP version.
+- Redis linked-unit enable errors.
 
-- Fixed installation failure when `pip` is managed by Ubuntu/Debian and has no Python `RECORD` file.
-- SuperServer now keeps the distribution-provided pip package and uses it directly for Django installation.
+### Validation status
 
-## 3.1.0
+- Bash syntax validation completed.
+- Full installation testing must be completed on clean VM snapshots before production release approval.
 
-- Added Debian 11, 12 and 13 support.
-- Kept Ubuntu 22.04, 24.04 and 26.04 support.
-- Added distribution-aware repository setup: Ubuntu PPAs and Debian Sury PHP.
-- Added repository Release metadata checks before enabling third-party sources.
-- Added Redis package and service-name compatibility across distributions.
-- Added portable MySQL development package selection.
-- Added dynamic optional PHP extension detection.
-- Removed unused legacy `super-sdomain` wrapper copies and inactive Glances service asset.
-- Retained random credentials, protected `serverInfo.txt`, phpMyAdmin, Certbot, Fail2ban, unattended-upgrades, Fastfetch/MOTD, Node.js LTS, PM2 and Django with `--break-system-packages`.
+## [3.1.4]
+
+- Previous public repository version before the web-server and PHP reliability update.

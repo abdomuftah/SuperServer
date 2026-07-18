@@ -1,17 +1,79 @@
 #!/usr/bin/env bash
+# ==============================================================================
 # SNYT SuperServer
+# A single-file Ubuntu/Debian web-server installer maintained by SNYT Hosting.
 # Supported: Ubuntu 22.04/24.04/26.04 and Debian 11/12/13
+# ==============================================================================
 
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-SUPERSERVER_VERSION="3.1.4"
+SUPERSERVER_VERSION="3.2.0"
 REPO_RAW="https://raw.githubusercontent.com/abdomuftah/SuperServer/main"
 INFO_DIR="/root/SNYT"
 INFO_FILE="$INFO_DIR/serverInfo.txt"
 LOG_FILE="/var/log/snyt-superserver.log"
+STATE_FILE="$INFO_DIR/.superserver-installed"
 
-RED='\033[1;31m'; GREEN='\033[1;32m'; BLUE='\033[1;34m'; MAGENTA='\033[1;35m'; YELLOW='\033[1;33m'; NC='\033[0m'
+RED='\033[1;31m'
+GREEN='\033[1;32m'
+BLUE='\033[1;34m'
+MAGENTA='\033[1;35m'
+CYAN='\033[1;36m'
+YELLOW='\033[1;33m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+FORCE_INSTALL=false
+SSL_ACTIVE=false
+web_server=""
+php_version=""
+domain=""
+email=""
+SSH_PORT="22"
+REDIS_UNIT=""
+mysql_admin_user="snyt_admin"
+mysql_admin_password=""
+pma_app_password=""
+
+PHP_VERSION_CANDIDATES=(8.5 8.4 8.3 8.2 8.1)
+PHP_CORE_SUFFIXES=(
+  cli common fpm curl mysql mbstring xml zip intl gd bcmath opcache
+)
+PHP_OPTIONAL_SUFFIXES=(
+  redis sqlite3 soap bz2 imagick tidy
+)
+AVAILABLE_PHP_VERSIONS=()
+
+usage() {
+  cat <<EOF
+SNYT SuperServer v$SUPERSERVER_VERSION
+
+Usage:
+  sudo ./SuperServer.sh [option]
+
+Options:
+  --force      Allow execution when a previous SuperServer installation is found.
+               This does not permit changing between Apache and Nginx in place.
+  --version    Print the installer version and exit.
+  -h, --help   Show this help screen.
+EOF
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    --force) FORCE_INSTALL=true ;;
+    --version) echo "$SUPERSERVER_VERSION"; exit 0 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $arg" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+if [[ $EUID -ne 0 ]]; then
+  echo "Error: run SuperServer as root (sudo -i)." >&2
+  exit 1
+fi
 
 mkdir -p "$INFO_DIR"
 chmod 700 "$INFO_DIR"
@@ -19,324 +81,449 @@ touch "$LOG_FILE"
 chmod 600 "$LOG_FILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
-trap 'display_error "Unexpected failure" "$LINENO"' ERR
+on_error() {
+  local exit_code=$?
+  local line="${1:-?}"
+  local command="${2:-unknown}"
 
-display_error() {
-    local message="${1:-Unknown error}" line="${2:-?}"
-    echo -e "${RED}Error: ${message} at line ${line}${NC}" >&2
-    echo "Review: $LOG_FILE" >&2
-    exit 1
+  echo -e "\n${RED}${BOLD}Installation failed.${NC}" >&2
+  echo -e "${RED}Line:${NC} $line" >&2
+  echo -e "${RED}Command:${NC} $command" >&2
+  echo -e "${RED}Exit code:${NC} $exit_code" >&2
+  echo -e "Review the log: ${BOLD}$LOG_FILE${NC}" >&2
+  exit "$exit_code"
+}
+trap 'on_error "$LINENO" "$BASH_COMMAND"' ERR
+
+info() { echo -e "${CYAN}ℹ${NC} $*"; }
+ok() { echo -e "${GREEN}✔${NC} $*"; }
+warn() { echo -e "${YELLOW}⚠${NC} $*"; }
+fatal() {
+  echo -e "${RED}✖ $*${NC}" >&2
+  echo "Review: $LOG_FILE" >&2
+  exit 1
 }
 
 section() {
-    echo -e "\n${GREEN}******************************************${NC}"
-    echo -e "${GREEN}$1${NC}"
-    echo -e "${GREEN}******************************************${NC}"
+  echo
+  echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${GREEN}${BOLD}  $1${NC}"
+  echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 }
 
-require_root() {
-    [[ $EUID -eq 0 ]] || display_error "Run this script as root" "$LINENO"
+print_banner() {
+  clear || true
+  echo -e "${BLUE}${BOLD}"
+  cat <<'BANNER'
+   _____ _   ___   _________   _____                         _____
+  / ___// | / / | / /_  __/  / ___/___  ______   _____  ____/ ___/
+  \__ \/  |/ /  |/ / / /     \__ \/ _ \/ ___/ | / / _ \/ __ \__ \
+ ___/ / /|  / /|  / / /     ___/ /  __/ /   | |/ /  __/ /_/ /__/ /
+/____/_/ |_/_/ |_/ /_/     /____/\___/_/    |___/\___/\__,_/____/
+BANNER
+  echo -e "${NC}${DIM}  Reliable web-stack automation by SNYT Hosting${NC}"
+  echo -e "  Version ${BOLD}$SUPERSERVER_VERSION${NC}"
+  echo
 }
 
-get_user_input() {
-    local prompt="$1" input
+prompt_nonempty() {
+  local prompt="$1"
+  local input=""
+  while [[ -z "$input" ]]; do
     read -r -p "$prompt" input
-    [[ -n "$input" ]] || display_error "Input cannot be empty" "$LINENO"
-    printf '%s' "$input"
+    [[ -n "$input" ]] || echo -e "${YELLOW}⚠${NC} This value cannot be empty." >&2
+  done
+  printf '%s' "$input"
+}
+
+confirm() {
+  local prompt="${1:-Continue?}"
+  local default="${2:-Y}"
+  local answer=""
+
+  if [[ "$default" == "Y" ]]; then
+    read -r -p "$prompt [Y/n]: " answer
+    answer="${answer:-Y}"
+  else
+    read -r -p "$prompt [y/N]: " answer
+    answer="${answer:-N}"
+  fi
+
+  [[ "$answer" =~ ^[Yy]$ ]]
 }
 
 validate_domain() {
-    [[ "$1" =~ ^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$ ]]
+  [[ "$1" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$ ]]
 }
 
 validate_email() {
-    [[ "$1" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]
+  [[ "$1" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]
 }
 
 generate_password() {
-    # 28 characters, URL/shell friendly, cryptographically random.
-    openssl rand -hex 18
+  # 36 URL/shell-friendly hexadecimal characters from a cryptographic RNG.
+  openssl rand -hex 18
 }
 
 safe_write_info() {
-    local key="$1" value="$2"
-    mkdir -p "$INFO_DIR"
-    touch "$INFO_FILE"
-    chmod 600 "$INFO_FILE"
-    if grep -qF "${key}:" "$INFO_FILE" 2>/dev/null; then
-        sed -i "s|^${key}:.*|${key}: ${value}|" "$INFO_FILE"
-    else
-        printf '%s: %s\n' "$key" "$value" >> "$INFO_FILE"
-    fi
+  local key="$1"
+  local value="$2"
+  local tmp
+
+  mkdir -p "$INFO_DIR"
+  touch "$INFO_FILE"
+  chmod 600 "$INFO_FILE"
+  tmp="$(mktemp)"
+
+  awk -F': ' -v wanted="$key" '$1 != wanted { print }' "$INFO_FILE" > "$tmp"
+  printf '%s: %s\n' "$key" "$value" >> "$tmp"
+  install -m 0600 "$tmp" "$INFO_FILE"
+  rm -f "$tmp"
 }
 
 backup_file() {
-    local file="$1"
-    [[ -e "$file" ]] || return 0
-    cp -a "$file" "${file}.snyt-backup-$(date +%Y%m%d-%H%M%S)"
+  local file="$1"
+  [[ -e "$file" ]] || return 0
+  cp -a "$file" "${file}.snyt-backup-$(date +%Y%m%d-%H%M%S)"
 }
 
 fetch_asset() {
-    local asset="$1" target="$2" local_file
-    local_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/assets/$asset"
-    if [[ -f "$local_file" ]]; then
-        install -m 0644 "$local_file" "$target"
-    else
-        curl -fsSL "$REPO_RAW/assets/$asset" -o "$target"
-    fi
+  local asset="$1"
+  local target="$2"
+  local mode="${3:-0644}"
+  local local_file
+
+  local_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/assets/$asset"
+  mkdir -p "$(dirname "$target")"
+
+  if [[ -f "$local_file" ]]; then
+    install -m "$mode" "$local_file" "$target"
+  else
+    curl -fsSL --retry 3 --connect-timeout 10 "$REPO_RAW/assets/$asset" -o "$target"
+    chmod "$mode" "$target"
+  fi
+}
+
+package_has_candidate() {
+  local package="$1"
+  local candidate
+  candidate="$(apt-cache policy "$package" 2>/dev/null | awk '/Candidate:/ {print $2; exit}')"
+  [[ -n "$candidate" && "$candidate" != "(none)" ]]
 }
 
 check_release_url() {
-    curl -fsI --connect-timeout 8 --max-time 15 "$1" >/dev/null 2>&1
+  curl -fsSL --retry 2 --connect-timeout 8 --max-time 20 "$1" -o /dev/null >/dev/null 2>&1
 }
 
 add_launchpad_ppa_if_supported() {
-    local ppa="$1" owner archive release_url
-    [[ "$DISTRO_ID" == "ubuntu" ]] || return 1
-    owner="${ppa#ppa:}"; owner="${owner%%/*}"
-    archive="${ppa##*/}"
-    release_url="https://ppa.launchpadcontent.net/${owner}/${archive}/ubuntu/dists/${VERSION_CODENAME}/Release"
-    if check_release_url "$release_url"; then
-        add-apt-repository -y "$ppa"
-        return 0
-    fi
-    echo -e "${YELLOW}Skipping unsupported PPA $ppa for $VERSION_CODENAME; using distribution packages when possible.${NC}"
-    return 1
+  local ppa="$1"
+  local owner archive release_url
+
+  [[ "$DISTRO_ID" == "ubuntu" ]] || return 1
+  owner="${ppa#ppa:}"
+  owner="${owner%%/*}"
+  archive="${ppa##*/}"
+  release_url="https://ppa.launchpadcontent.net/${owner}/${archive}/ubuntu/dists/${VERSION_CODENAME}/Release"
+
+  if check_release_url "$release_url"; then
+    add-apt-repository -y "$ppa"
+    return 0
+  fi
+
+  warn "Repository $ppa does not publish $VERSION_CODENAME; distribution packages will be used."
+  return 1
 }
 
 configure_debian_sury_php() {
-    [[ "$DISTRO_ID" == "debian" ]] || return 0
-    local release_url="https://packages.sury.org/php/dists/${VERSION_CODENAME}/Release"
-    if ! check_release_url "$release_url"; then
-        echo -e "${YELLOW}Sury PHP does not publish $VERSION_CODENAME; using Debian PHP packages.${NC}"
-        return 1
-    fi
-    install -d -m 0755 /etc/apt/keyrings
-    curl -fsSL https://packages.sury.org/php/apt.gpg -o /etc/apt/keyrings/deb.sury.org-php.gpg
-    chmod 0644 /etc/apt/keyrings/deb.sury.org-php.gpg
-    echo "deb [signed-by=/etc/apt/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ $VERSION_CODENAME main" > /etc/apt/sources.list.d/php-sury.list
+  [[ "$DISTRO_ID" == "debian" ]] || return 0
+
+  local release_url="https://packages.sury.org/php/dists/${VERSION_CODENAME}/Release"
+  if ! check_release_url "$release_url"; then
+    warn "Sury PHP does not publish $VERSION_CODENAME; Debian packages will be used."
+    return 1
+  fi
+
+  install -d -m 0755 /etc/apt/keyrings
+  curl -fsSL --retry 3 https://packages.sury.org/php/apt.gpg \
+    -o /etc/apt/keyrings/deb.sury.org-php.gpg
+  chmod 0644 /etc/apt/keyrings/deb.sury.org-php.gpg
+  echo "deb [signed-by=/etc/apt/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ $VERSION_CODENAME main" \
+    > /etc/apt/sources.list.d/php-sury.list
 }
 
 detect_os() {
-    [[ -r /etc/os-release ]] || display_error "/etc/os-release is missing" "$LINENO"
-    # shellcheck disable=SC1091
-    source /etc/os-release
-    DISTRO_ID="${ID:-}"
-    case "$DISTRO_ID" in
-        ubuntu)
-            case "${VERSION_ID:-}" in
-                22.04|24.04|26.04) ;;
-                *) display_error "Unsupported Ubuntu version: ${VERSION_ID:-unknown}. Supported: 22.04, 24.04, 26.04" "$LINENO" ;;
-            esac
-            ;;
-        debian)
-            case "${VERSION_ID:-}" in
-                11|12|13) ;;
-                *) display_error "Unsupported Debian version: ${VERSION_ID:-unknown}. Supported: 11, 12, 13" "$LINENO" ;;
-            esac
-            ;;
-        *) display_error "Unsupported distribution: ${DISTRO_ID:-unknown}. Use Ubuntu or Debian." "$LINENO" ;;
-    esac
-    VERSION_CODENAME="${VERSION_CODENAME:-${DEBIAN_CODENAME:-}}"
-    [[ -n "$VERSION_CODENAME" ]] || display_error "Could not detect distribution codename" "$LINENO"
-    ARCH="$(dpkg --print-architecture)"
-    safe_write_info "SuperServer Version" "$SUPERSERVER_VERSION"
-    safe_write_info "Installation Date" "$(date --iso-8601=seconds)"
-    safe_write_info "Operating System" "$PRETTY_NAME"
-    safe_write_info "Distribution" "$DISTRO_ID"
-    safe_write_info "Distribution Codename" "$VERSION_CODENAME"
-    safe_write_info "Architecture" "$ARCH"
-    safe_write_info "Hostname" "$(hostname -f 2>/dev/null || hostname)"
+  [[ -r /etc/os-release ]] || fatal "/etc/os-release is missing."
+  # shellcheck disable=SC1091
+  source /etc/os-release
+
+  DISTRO_ID="${ID:-}"
+  case "$DISTRO_ID" in
+    ubuntu)
+      case "${VERSION_ID:-}" in
+        22.04|24.04|26.04) ;;
+        *) fatal "Unsupported Ubuntu version: ${VERSION_ID:-unknown}. Supported: 22.04, 24.04, 26.04." ;;
+      esac
+      ;;
+    debian)
+      case "${VERSION_ID:-}" in
+        11|12|13) ;;
+        *) fatal "Unsupported Debian version: ${VERSION_ID:-unknown}. Supported: 11, 12, 13." ;;
+      esac
+      ;;
+    *) fatal "Unsupported distribution: ${DISTRO_ID:-unknown}. Use Ubuntu or Debian." ;;
+  esac
+
+  VERSION_CODENAME="${VERSION_CODENAME:-${UBUNTU_CODENAME:-${DEBIAN_CODENAME:-}}}"
+  [[ -n "$VERSION_CODENAME" ]] || fatal "Could not detect the distribution codename."
+  ARCH="$(dpkg --print-architecture)"
+
+  safe_write_info "SuperServer Version" "$SUPERSERVER_VERSION"
+  safe_write_info "Installation Date" "$(date --iso-8601=seconds)"
+  safe_write_info "Operating System" "$PRETTY_NAME"
+  safe_write_info "Distribution" "$DISTRO_ID"
+  safe_write_info "Distribution Codename" "$VERSION_CODENAME"
+  safe_write_info "Architecture" "$ARCH"
+  safe_write_info "Hostname" "$(hostname -f 2>/dev/null || hostname)"
+}
+
+detect_ssh_port() {
+  local detected=""
+
+  if command -v sshd >/dev/null 2>&1; then
+    detected="$(sshd -T 2>/dev/null | awk '$1 == "port" {print $2; exit}' || true)"
+  fi
+
+  if [[ -z "$detected" ]]; then
+    detected="$(
+      grep -RhsE '^[[:space:]]*Port[[:space:]]+[0-9]+' \
+        /etc/ssh/sshd_config /etc/ssh/sshd_config.d 2>/dev/null \
+        | tail -n1 | awk '{print $2}' || true
+    )"
+  fi
+
+  SSH_PORT="${detected:-22}"
+  [[ "$SSH_PORT" =~ ^[0-9]+$ ]] || SSH_PORT="22"
+  safe_write_info "SSH Port" "$SSH_PORT"
+}
+
+check_previous_installation() {
+  if [[ -f "$STATE_FILE" && "$FORCE_INSTALL" != true ]]; then
+    fatal "A completed SuperServer installation already exists. Use --force only after taking a snapshot or backup."
+  fi
 }
 
 choose_web_server() {
-    echo "Choose web server:"
-    select opt in apache nginx; do
-        case "$opt" in apache|nginx) web_server="$opt"; break;; *) echo "Invalid option";; esac
-    done
+  local choice=""
+
+  echo -e "${BOLD}Choose your web server${NC}"
+  echo
+  echo -e "  ${BLUE}1) Apache${NC}"
+  echo "     Best for WordPress, .htaccess, shared-style websites and compatibility."
+  echo
+  echo -e "  ${BLUE}2) Nginx${NC}"
+  echo "     Best for reverse proxies, Docker applications and a lightweight stack."
+  echo
+
+  while true; do
+    read -r -p "Selection [1-2]: " choice
+    case "$choice" in
+      1) web_server="apache" ;;
+      2) web_server="nginx" ;;
+      *) warn "Enter 1 for Apache or 2 for Nginx."; continue ;;
+    esac
+
+    echo
+    info "Selected web server: ${web_server^}"
+    if confirm "Use ${web_server^}?" "Y"; then
+      break
+    fi
+    echo
+  done
+
+  safe_write_info "Web Server Selection" "$web_server"
 }
 
-php_available() {
-    apt-cache show "php$1-cli" >/dev/null 2>&1
+package_installed() {
+  dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q '^install ok installed$'
+}
+
+check_web_server_conflict() {
+  if [[ "$web_server" == "apache" ]] && package_installed nginx; then
+    fatal "Nginx is already installed. SuperServer will not remove or replace an existing web server automatically."
+  fi
+
+  if [[ "$web_server" == "nginx" ]] && package_installed apache2; then
+    fatal "Apache is already installed. SuperServer will not remove or replace an existing web server automatically."
+  fi
+}
+
+php_version_complete() {
+  local version="$1"
+  local suffix
+
+  for suffix in "${PHP_CORE_SUFFIXES[@]}"; do
+    package_has_candidate "php${version}-${suffix}" || return 1
+  done
+  return 0
+}
+
+discover_php_versions() {
+  local version
+  AVAILABLE_PHP_VERSIONS=()
+
+  for version in "${PHP_VERSION_CANDIDATES[@]}"; do
+    if php_version_complete "$version"; then
+      AVAILABLE_PHP_VERSIONS+=("$version")
+    fi
+  done
+
+  [[ ${#AVAILABLE_PHP_VERSIONS[@]} -gt 0 ]] || fatal \
+    "No complete PHP version was found. SuperServer requires CLI, FPM and all core extensions for the same version."
 }
 
 choose_php_version() {
-    echo "Choose PHP profile/version:"
-    echo "1) Nextcloud (newest compatible available: prefers 8.4, then 8.3)"
-    echo "2) General / Laravel (newest stable available)"
-    echo "3) Legacy application (PHP 8.2)"
-    echo "4) Choose manually"
-    local choice
-    read -r -p "Selection [1-4]: " choice
-    case "$choice" in
-        1)
-            for v in 8.4 8.3 8.2; do php_available "$v" && { php_version="$v"; break; }; done
-            ;;
-        2)
-            for v in 8.5 8.4 8.3 8.2; do php_available "$v" && { php_version="$v"; break; }; done
-            ;;
-        3) php_version="8.2" ;;
-        4)
-            read -r -p "PHP version (example 8.2): " php_version
-            [[ "$php_version" =~ ^[0-9]+\.[0-9]+$ ]] || display_error "Invalid PHP version" "$LINENO"
-            ;;
-        *) display_error "Invalid PHP selection" "$LINENO" ;;
-    esac
-    [[ -n "${php_version:-}" ]] || display_error "No supported PHP package was found" "$LINENO"
-    php_available "$php_version" || display_error "PHP $php_version is not available for this Ubuntu/repository combination" "$LINENO"
-}
+  local selection=""
+  local index version
 
-configure_unattended_upgrades() {
-    section "Configuring automatic security updates"
-    apt-get install -y unattended-upgrades apt-listchanges
-    cat > /etc/apt/apt.conf.d/20auto-upgrades <<'CONF'
-APT::Periodic::Update-Package-Lists "1";
-APT::Periodic::Unattended-Upgrade "1";
-APT::Periodic::AutocleanInterval "7";
-CONF
-    systemctl enable --now unattended-upgrades.service || true
-}
+  section "PHP version selection"
+  discover_php_versions
 
-install_fastfetch_motd() {
-    section "Installing SNYT Fastfetch and MOTD"
-    local api asset_url="" tmp="/tmp/fastfetch.deb" pattern
-    apt-get install -y jq figlet
-    case "$ARCH" in
-        amd64) pattern='linux-amd64.deb$' ;;
-        arm64) pattern='linux-aarch64.deb$' ;;
-        *) pattern='' ;;
-    esac
-    if [[ -n "$pattern" ]]; then
-        api="$(curl -fsSL https://api.github.com/repos/fastfetch-cli/fastfetch/releases/latest || true)"
-        asset_url="$(jq -r --arg p "$pattern" '.assets[] | select(.name|test($p)) | .browser_download_url' <<<"$api" | head -n1)"
-    fi
-    if [[ -n "$asset_url" && "$asset_url" != "null" ]]; then
-        curl -fsSL "$asset_url" -o "$tmp"
-        apt-get install -y "$tmp" || dpkg -i "$tmp" || apt-get -f install -y
-        rm -f "$tmp"
+  echo "Only complete PHP versions are shown. Each option has CLI, FPM and all required core extensions."
+  echo
+
+  for index in "${!AVAILABLE_PHP_VERSIONS[@]}"; do
+    version="${AVAILABLE_PHP_VERSIONS[$index]}"
+    if [[ "$index" -eq 0 ]]; then
+      printf '  %d) PHP %s  %b\n' "$((index + 1))" "$version" "${GREEN}(newest complete version)${NC}"
+    elif [[ "$version" == "8.2" ]]; then
+      printf '  %d) PHP %s  %b\n' "$((index + 1))" "$version" "${YELLOW}(legacy compatibility)${NC}"
     else
-        apt-get install -y fastfetch || echo "Fastfetch package unavailable; MOTD will use standard system information."
+      printf '  %d) PHP %s\n' "$((index + 1))" "$version"
     fi
+  done
 
-    mkdir -p /etc/snyt
-    cat > /etc/snyt/fastfetch.jsonc <<'JSON'
-{
-  "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
-  "logo": { "type": "small", "padding": { "top": 1, "right": 2 } },
-  "display": { "separator": "  ➜  " },
-  "modules": [
-    { "type": "title", "format": "SNYT Hosting • {user-name}@{host-name}" },
-    "separator", "os", "host", "kernel", "uptime", "packages", "shell", "terminal",
-    "cpu", "memory", "swap", "disk", "localip", "break", "colors"
-  ]
+  echo
+  while true; do
+    read -r -p "Select PHP [1-${#AVAILABLE_PHP_VERSIONS[@]}]: " selection
+    if [[ "$selection" =~ ^[0-9]+$ ]] \
+      && (( selection >= 1 && selection <= ${#AVAILABLE_PHP_VERSIONS[@]} )); then
+      php_version="${AVAILABLE_PHP_VERSIONS[$((selection - 1))]}"
+      break
+    fi
+    warn "Choose a number between 1 and ${#AVAILABLE_PHP_VERSIONS[@]}."
+  done
+
+  php_version_complete "$php_version" || fatal "PHP $php_version became incomplete after selection."
+  safe_write_info "Selected PHP Version" "$php_version"
+  ok "PHP $php_version selected and verified as a complete package set."
 }
-JSON
-    cat > /etc/update-motd.d/01-snyt <<'MOTD'
-#!/usr/bin/env bash
-printf '\n'
-if command -v figlet >/dev/null 2>&1; then figlet -f slant SNYT 2>/dev/null; else echo '=== SNYT Hosting ==='; fi
-printf 'Managed by SNYT SuperServer\n\n'
-if command -v fastfetch >/dev/null 2>&1; then fastfetch --config /etc/snyt/fastfetch.jsonc; fi
-printf '\n'
-MOTD
-    chmod +x /etc/update-motd.d/01-snyt
+
+show_installation_summary() {
+  echo
+  echo -e "${BOLD}Installation summary${NC}"
+  echo -e "  System      : $PRETTY_NAME"
+  echo -e "  Architecture: $ARCH"
+  echo -e "  Domain      : $domain"
+  echo -e "  Web server  : ${web_server^}"
+  echo -e "  PHP         : $php_version"
+  echo -e "  SSH port    : $SSH_PORT"
+  echo -e "  Credentials : $INFO_FILE"
+  echo
+
+  confirm "Start the installation?" "Y" || fatal "Installation cancelled by the user."
+}
+
+install_base_packages() {
+  section "Updating the operating system"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get dist-upgrade -y
+  apt-get autoremove -y
+
+  local base_packages=(
+    ca-certificates curl wget gnupg lsb-release software-properties-common
+    dialog openssl jq screen nano git zip unzip ufw
+    default-jdk python3 python3-dev python3-pip
+    gcc g++ make composer
+  )
+
+  if package_has_candidate default-libmysqlclient-dev; then
+    base_packages+=(default-libmysqlclient-dev)
+  elif package_has_candidate libmysqlclient-dev; then
+    base_packages+=(libmysqlclient-dev)
+  fi
+
+  apt-get install -y "${base_packages[@]}"
+}
+
+configure_repositories() {
+  section "Configuring compatible repositories"
+
+  if [[ "$DISTRO_ID" == "ubuntu" ]]; then
+    add_launchpad_ppa_if_supported ppa:ondrej/php || true
+
+    # Web-server PPAs are optional. Distribution packages remain the safe fallback.
+    if [[ "$web_server" == "apache" ]]; then
+      add_launchpad_ppa_if_supported ppa:ondrej/apache2 || true
+    else
+      add_launchpad_ppa_if_supported ppa:ondrej/nginx-mainline || true
+    fi
+  else
+    configure_debian_sury_php || true
+  fi
+
+  if check_release_url "https://packages.redis.io/deb/dists/$VERSION_CODENAME/Release"; then
+    install -d -m 0755 /usr/share/keyrings
+    curl -fsSL --retry 3 https://packages.redis.io/gpg \
+      | gpg --dearmor --yes -o /usr/share/keyrings/redis-archive-keyring.gpg
+    chmod 0644 /usr/share/keyrings/redis-archive-keyring.gpg
+    echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $VERSION_CODENAME main" \
+      > /etc/apt/sources.list.d/redis.list
+  else
+    warn "The Redis upstream repository does not publish $VERSION_CODENAME; using the distribution package."
+    rm -f /etc/apt/sources.list.d/redis.list
+  fi
+
+  apt-get update
+}
+
+install_web_server() {
+  section "Installing ${web_server^}"
+  check_web_server_conflict
+
+  if [[ "$web_server" == "apache" ]]; then
+    apt-get install -y apache2
+    systemctl enable --now apache2
+    systemctl is-active --quiet apache2
+  else
+    apt-get install -y nginx
+    systemctl enable --now nginx
+    systemctl is-active --quiet nginx
+  fi
 }
 
 install_certbot() {
-    section "Installing Certbot and automatic renewal"
-    if [[ "$web_server" == apache ]]; then
-        apt-get install -y certbot python3-certbot-apache
-    else
-        apt-get install -y certbot python3-certbot-nginx
-    fi
-    systemctl enable --now certbot.timer 2>/dev/null || true
-}
+  section "Installing Certbot"
 
-configure_ssl() {
-    section "Configuring Let's Encrypt SSL"
+  if [[ "$web_server" == "apache" ]]; then
+    apt-get install -y certbot python3-certbot-apache
+  else
+    apt-get install -y certbot python3-certbot-nginx
+  fi
 
-    # Do not compare DNS results with the server IP here. A domain proxied through
-    # Cloudflare resolves to Cloudflare addresses, but Let's Encrypt HTTP-01 can
-    # still validate it through the proxy when ports 80/443 are reachable.
-    local certbot_args=(
-        --non-interactive
-        --agree-tos
-        --redirect
-        --email "$email"
-        -d "$domain"
-    )
-
-    if [[ "$web_server" == "apache" ]]; then
-        if certbot --apache "${certbot_args[@]}"; then
-            SSL_ACTIVE=true
-        else
-            SSL_ACTIVE=false
-        fi
-    else
-        if certbot --nginx "${certbot_args[@]}"; then
-            SSL_ACTIVE=true
-        else
-            SSL_ACTIVE=false
-        fi
-    fi
-
-    if [[ "$SSL_ACTIVE" == true ]]; then
-        certbot renew --dry-run || echo -e "${YELLOW}Certbot dry-run failed; inspect $LOG_FILE.${NC}"
-        safe_write_info "SSL Status" "Active with automatic renewal"
-        safe_write_info "Primary URL" "https://$domain"
-    else
-        echo -e "${YELLOW}SSL could not be issued now. The installation will continue over HTTP.${NC}"
-        echo -e "${YELLOW}Check DNS, Cloudflare, ports 80/443, then run:${NC}"
-        echo "certbot --$web_server -d $domain --redirect"
-        safe_write_info "SSL Status" "Pending; run: certbot --$web_server -d $domain --redirect"
-        safe_write_info "Primary URL" "http://$domain"
-    fi
-}
-
-configure_phpmyadmin() {
-    section "Installing and securing phpMyAdmin"
-    pma_app_password="$(generate_password)"
-    export DEBIAN_FRONTEND=noninteractive
-    echo "phpmyadmin phpmyadmin/dbconfig-install boolean true" | debconf-set-selections
-    echo "phpmyadmin phpmyadmin/mysql/app-pass password $pma_app_password" | debconf-set-selections
-    echo "phpmyadmin phpmyadmin/app-password-confirm password $pma_app_password" | debconf-set-selections
-    echo "phpmyadmin phpmyadmin/reconfigure-webserver multiselect none" | debconf-set-selections
-    apt-get install -y phpmyadmin
-
-    if [[ "$web_server" == apache ]]; then
-        [[ -e /etc/apache2/conf-enabled/phpmyadmin.conf ]] || ln -s /etc/phpmyadmin/apache.conf /etc/apache2/conf-enabled/phpmyadmin.conf
-        apache2ctl configtest
-        systemctl reload apache2
-    else
-        cat > /etc/nginx/snippets/phpmyadmin.conf <<'EOF_PMA'
-location /phpmyadmin {
-    root /usr/share/;
-    index index.php index.html index.htm;
-    location ~ ^/phpmyadmin/(.+\.php)$ {
-        try_files $uri =404;
-        root /usr/share/;
-        fastcgi_pass unix:/run/php/phpPHPVERSION-fpm.sock;
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        include fastcgi_params;
-    }
-    location ~* ^/phpmyadmin/(.+\.(jpg|jpeg|gif|css|png|js|ico|html|xml|txt))$ { root /usr/share/; }
-}
-EOF_PMA
-        sed -i "s/PHPVERSION/$php_version/g" /etc/nginx/snippets/phpmyadmin.conf
-        grep -q 'snippets/phpmyadmin.conf' "/etc/nginx/sites-available/$domain.conf" || sed -i '/server_name/a\\    include snippets/phpmyadmin.conf;' "/etc/nginx/sites-available/$domain.conf"
-        nginx -t && systemctl reload nginx
-    fi
-    safe_write_info "phpMyAdmin URL" "https://$domain/phpmyadmin"
-    safe_write_info "phpMyAdmin Database App Password" "$pma_app_password"
+  systemctl enable --now certbot.timer 2>/dev/null || true
 }
 
 configure_mariadb() {
-    section "Installing and securing MariaDB"
-    apt-get install -y mariadb-server mariadb-client
-    systemctl enable --now mariadb
-    mysql_admin_user="snyt_admin"
-    mysql_admin_password="$(generate_password)"
-    mysql --protocol=socket <<SQL
+  section "Installing and securing MariaDB"
+
+  apt-get install -y mariadb-server mariadb-client
+  systemctl enable --now mariadb
+  systemctl is-active --quiet mariadb
+
+  mysql_admin_password="$(generate_password)"
+
+  mariadb --protocol=socket <<SQL
 DELETE FROM mysql.user WHERE User='';
 DROP DATABASE IF EXISTS test;
 DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
@@ -345,251 +532,609 @@ ALTER USER '${mysql_admin_user}'@'localhost' IDENTIFIED BY '${mysql_admin_passwo
 GRANT ALL PRIVILEGES ON *.* TO '${mysql_admin_user}'@'localhost' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 SQL
-    safe_write_info "MariaDB Root Authentication" "unix_socket (use: sudo mariadb)"
-    safe_write_info "MariaDB Admin User" "$mysql_admin_user"
-    safe_write_info "MariaDB Admin Password" "$mysql_admin_password"
-    safe_write_info "MariaDB Version" "$(mariadb --version | head -n1)"
+
+  local mariadb_auth_file
+  mariadb_auth_file="$(mktemp)"
+  chmod 0600 "$mariadb_auth_file"
+  cat > "$mariadb_auth_file" <<EOF
+[client]
+user=$mysql_admin_user
+password=$mysql_admin_password
+host=localhost
+EOF
+
+  if mariadb --defaults-extra-file="$mariadb_auth_file" --execute='SELECT 1;' >/dev/null; then
+    rm -f "$mariadb_auth_file"
+  else
+    rm -f "$mariadb_auth_file"
+    fatal "The generated MariaDB administrative account failed authentication."
+  fi
+
+  safe_write_info "MariaDB Root Authentication" "unix_socket (use: sudo mariadb)"
+  safe_write_info "MariaDB Admin User" "$mysql_admin_user"
+  safe_write_info "MariaDB Admin Password" "$mysql_admin_password"
+  safe_write_info "MariaDB Version" "$(mariadb --version | head -n1)"
 }
 
-configure_firewall() {
-    section "Configuring UFW firewall"
-    ufw default deny incoming
-    ufw default allow outgoing
-    if ufw app info OpenSSH >/dev/null 2>&1; then
-        ufw allow OpenSSH
+install_php() {
+  section "Installing PHP $php_version"
+
+  local core_packages=()
+  local optional_packages=()
+  local skipped_optional=()
+  local suffix package
+
+  # Deliberately do not install the generic phpX.Y meta package. On some releases
+  # it may select mod_php/Apache or a different default PHP stack.
+  for suffix in "${PHP_CORE_SUFFIXES[@]}"; do
+    package="php${php_version}-${suffix}"
+    package_has_candidate "$package" || fatal "Required PHP package is unavailable: $package"
+    core_packages+=("$package")
+  done
+
+  for suffix in "${PHP_OPTIONAL_SUFFIXES[@]}"; do
+    package="php${php_version}-${suffix}"
+    if package_has_candidate "$package"; then
+      optional_packages+=("$package")
     else
-        ufw allow 22/tcp
+      skipped_optional+=("$package")
     fi
-    ufw allow 80/tcp
-    ufw allow 443/tcp
-    ufw --force enable
-}
+  done
 
-configure_fail2ban() {
-    section "Installing and configuring Fail2ban"
-    apt-get install -y fail2ban
-    if [[ "$web_server" == apache ]]; then
-        fetch_asset Apachejail.local /etc/fail2ban/jail.local
-    else
-        fetch_asset Nginxjail.local /etc/fail2ban/jail.local
-    fi
-    systemctl enable --now fail2ban
-    fail2ban-client ping
-}
+  apt-get install -y "${core_packages[@]}" "${optional_packages[@]}"
 
-require_root
-detect_os
-clear
-echo -e "${BLUE}**********************************************${NC}"
-echo -e "${BLUE}*          SNYT SuperServer Setup            *${NC}"
-echo -e "${BLUE}*                  v$SUPERSERVER_VERSION                   *${NC}"
-echo -e "${BLUE}**********************************************${NC}"
-echo "Detected: $PRETTY_NAME ($VERSION_CODENAME / $ARCH)"
-echo
+  if [[ ${#skipped_optional[@]} -gt 0 ]]; then
+    warn "Optional PHP packages unavailable and skipped: ${skipped_optional[*]}"
+  fi
 
-domain="$(get_user_input 'Set Web Domain (example.com): ')"
-validate_domain "$domain" || display_error "Invalid domain format" "$LINENO"
-email="$(get_user_input "Email for Let's Encrypt SSL: ")"
-validate_email "$email" || display_error "Invalid email format" "$LINENO"
-choose_web_server
+  configure_php_alternatives
+  systemctl enable --now "php${php_version}-fpm"
 
-section "Updating system packages"
-export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get dist-upgrade -y
-apt-get autoremove -y
-base_packages=(
-    ca-certificates curl wget gnupg lsb-release software-properties-common dialog openssl jq
-    screen nano git zip unzip ufw default-jdk python3 python3-dev python3-pip gcc g++ make composer
-)
-if apt-cache show default-libmysqlclient-dev >/dev/null 2>&1; then
-    base_packages+=(default-libmysqlclient-dev)
-elif apt-cache show libmysqlclient-dev >/dev/null 2>&1; then
-    base_packages+=(libmysqlclient-dev)
-fi
-apt-get install -y "${base_packages[@]}"
+  if [[ "$web_server" == "apache" ]]; then
+    # SuperServer always uses PHP-FPM, including with Apache.
+    local module
+    while read -r module; do
+      [[ -n "$module" ]] && a2dismod "$module" 2>/dev/null || true
+    done < <(find /etc/apache2/mods-enabled -maxdepth 1 -type l -name 'php*.load' \
+      -printf '%f\n' 2>/dev/null | sed 's/\.load$//')
 
-section "Configuring current repositories"
-if [[ "$DISTRO_ID" == "ubuntu" ]]; then
-    add_launchpad_ppa_if_supported ppa:ondrej/php || true
-    if [[ "$web_server" == apache ]]; then
-        add_launchpad_ppa_if_supported ppa:ondrej/apache2 || true
-    else
-        add_launchpad_ppa_if_supported ppa:ondrej/nginx-mainline || true
-    fi
-else
-    configure_debian_sury_php || true
-fi
-# Redis official repository; fall back to Ubuntu if the current codename is not published.
-if check_release_url "https://packages.redis.io/deb/dists/$VERSION_CODENAME/Release"; then
-    curl -fsSL https://packages.redis.io/gpg | gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
-    chmod 644 /usr/share/keyrings/redis-archive-keyring.gpg
-    echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $VERSION_CODENAME main" > /etc/apt/sources.list.d/redis.list
-else
-    echo -e "${YELLOW}Redis upstream repository does not publish $VERSION_CODENAME yet; using the distribution Redis package.${NC}"
-fi
-apt-get update
-choose_php_version
-
-section "Installing $web_server"
-if [[ "$web_server" == apache ]]; then
-    apt-get install -y apache2
-    systemctl enable --now apache2
-else
-    apt-get install -y nginx
-    systemctl enable --now nginx
-fi
-install_certbot
-
-configure_mariadb
-
-section "Installing PHP $php_version and extensions"
-php_packages=(
-    "php$php_version" "php$php_version-cli" "php$php_version-common" "php$php_version-fpm"
-    "php$php_version-curl" "php$php_version-mysql" "php$php_version-redis" "php$php_version-sqlite3"
-    "php$php_version-intl" "php$php_version-gd" "php$php_version-mbstring" "php$php_version-xml"
-    "php$php_version-zip" "php$php_version-bcmath" "php$php_version-soap" "php$php_version-bz2"
-    "php$php_version-imagick" "php$php_version-tidy" "php$php_version-opcache"
-)
-available_php_packages=()
-missing_php_packages=()
-for package in "${php_packages[@]}"; do
-    if apt-cache show "$package" >/dev/null 2>&1; then
-        available_php_packages+=("$package")
-    else
-        missing_php_packages+=("$package")
-    fi
-done
-[[ ${#available_php_packages[@]} -gt 0 ]] || display_error "No PHP $php_version packages are available" "$LINENO"
-apt-get install -y "${available_php_packages[@]}"
-if [[ ${#missing_php_packages[@]} -gt 0 ]]; then
-    echo -e "${YELLOW}Optional PHP packages unavailable and skipped: ${missing_php_packages[*]}${NC}"
-fi
-update-alternatives --set php "/usr/bin/php$php_version"
-systemctl enable --now "php$php_version-fpm"
-if [[ "$web_server" == apache ]]; then
-    a2dismod "php$php_version" 2>/dev/null || true
     a2enmod proxy_fcgi setenvif rewrite headers ssl http2
-    a2enconf "php$php_version-fpm"
-fi
+    a2enconf "php${php_version}-fpm"
+  fi
 
-section "Applying PHP configuration"
-for sapi in cli fpm apache2; do
+  apply_php_configuration
+  verify_php_runtime
+}
+
+configure_php_alternatives() {
+  local command target
+
+  for command in php phar phar.phar; do
+    target="/usr/bin/${command}${php_version}"
+    [[ -x "$target" ]] || continue
+
+    if update-alternatives --query "$command" >/dev/null 2>&1; then
+      update-alternatives --set "$command" "$target"
+    fi
+  done
+}
+
+apply_php_configuration() {
+  section "Applying the SNYT PHP configuration"
+
+  local sapi ini
+  for sapi in cli fpm apache2; do
     ini="/etc/php/$php_version/$sapi/php.ini"
     [[ -f "$ini" ]] || continue
     backup_file "$ini"
     fetch_asset php.ini "$ini"
-done
-systemctl restart "php$php_version-fpm"
+  done
 
-section "Creating website for $domain"
-mkdir -p "/var/www/html/$domain"
-if [[ "$web_server" == apache ]]; then
+  systemctl restart "php${php_version}-fpm"
+}
+
+verify_php_runtime() {
+  local cli_version
+  cli_version="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"
+
+  [[ "$cli_version" == "$php_version" ]] || fatal \
+    "PHP CLI mismatch: selected $php_version, but the active CLI is $cli_version."
+  systemctl is-active --quiet "php${php_version}-fpm" || fatal "PHP-FPM $php_version is not active."
+  [[ -S "/run/php/php${php_version}-fpm.sock" ]] || fatal \
+    "PHP-FPM socket is missing: /run/php/php${php_version}-fpm.sock"
+
+  php -m | grep -qi '^curl$' || fatal "The PHP curl extension is not loaded."
+  php -m | grep -qi '^mbstring$' || fatal "The PHP mbstring extension is not loaded."
+  php -m | grep -qi '^mysqli$' || fatal "The PHP MySQL extension is not loaded."
+  ok "PHP $php_version CLI and FPM passed validation."
+}
+
+create_primary_website() {
+  section "Creating the primary website"
+
+  mkdir -p "/var/www/html/$domain"
+
+  if [[ "$web_server" == "apache" ]]; then
     fetch_asset ApacheIndex.php "/var/www/html/$domain/index.php"
     fetch_asset ApacheExample.conf "/etc/apache2/sites-available/$domain.conf"
-    sed -i "s/example.com/$domain/g" "/var/www/html/$domain/index.php" "/etc/apache2/sites-available/$domain.conf"
+    sed -i "s/example.com/$domain/g; s/phpversion/$php_version/g" \
+      "/var/www/html/$domain/index.php" "/etc/apache2/sites-available/$domain.conf"
+
     a2dissite 000-default.conf 2>/dev/null || true
     a2ensite "$domain.conf"
     apache2ctl configtest
     systemctl reload apache2
-else
+  else
     fetch_asset nginxIndex.php "/var/www/html/$domain/index.php"
     fetch_asset nginxExample.conf "/etc/nginx/sites-available/$domain.conf"
-    sed -i "s/example.com/$domain/g; s/phpversion/$php_version/g" "/var/www/html/$domain/index.php" "/etc/nginx/sites-available/$domain.conf"
+    sed -i "s/example.com/$domain/g; s/phpversion/$php_version/g" \
+      "/var/www/html/$domain/index.php" "/etc/nginx/sites-available/$domain.conf"
+
     ln -sfn "/etc/nginx/sites-available/$domain.conf" "/etc/nginx/sites-enabled/$domain.conf"
     rm -f /etc/nginx/sites-enabled/default
     nginx -t
     systemctl reload nginx
-fi
-chown -R www-data:www-data "/var/www/html/$domain"
-find "/var/www/html/$domain" -type d -exec chmod 755 {} +
-find "/var/www/html/$domain" -type f -exec chmod 644 {} +
+  fi
 
-configure_phpmyadmin
+  chown -R www-data:www-data "/var/www/html/$domain"
+  find "/var/www/html/$domain" -type d -exec chmod 755 {} +
+  find "/var/www/html/$domain" -type f -exec chmod 644 {} +
 
-section "Installing Python tools"
-# pip is managed by APT on Ubuntu/Debian. Do not try to uninstall or replace it.
-python3 -m pip --version
-python3 -m pip install --upgrade Django --break-system-packages
-[[ -e /usr/local/bin/python ]] || ln -s "$(command -v python3)" /usr/local/bin/python
+  verify_php_through_web_server
+}
 
-section "Installing current Node.js LTS and PM2"
-curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
-apt-get install -y nodejs
-npm install -g pm2@latest
-pm2 startup systemd -u root --hp /root >/tmp/snyt-pm2-startup.txt 2>&1 || true
+verify_php_through_web_server() {
+  local check_file="/var/www/html/$domain/.snyt-php-runtime-check.php"
+  local response=""
+  local attempt
 
-section "Installing Redis"
-if apt-cache show redis >/dev/null 2>&1; then
-    apt-get install -y redis
-else
-    apt-get install -y redis-server redis-tools
-fi
-# Redis packages on recent Ubuntu/Debian releases may expose redis.service and
-# redis-server.service as linked aliases. systemctl refuses to enable an alias,
-# while the APT package already configures boot-time activation through its preset.
-systemctl daemon-reload
+  cat > "$check_file" <<'PHP_CHECK'
+<?php echo PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION;
+PHP_CHECK
+  chown www-data:www-data "$check_file"
+  chmod 0644 "$check_file"
 
-REDIS_UNIT=""
-for candidate in redis-server.service redis.service; do
-    if systemctl start "$candidate" >/dev/null 2>&1; then
-        REDIS_UNIT="$candidate"
-        break
+  for attempt in 1 2 3 4 5; do
+    response="$(curl -fsS --max-time 10 -H "Host: $domain" \
+      "http://127.0.0.1/.snyt-php-runtime-check.php" 2>/dev/null || true)"
+    [[ "$response" == "$php_version" ]] && break
+    sleep 2
+  done
+
+  rm -f "$check_file"
+
+  [[ "$response" == "$php_version" ]] || fatal \
+    "Web PHP mismatch: selected $php_version, web server returned '${response:-no response}'."
+  ok "${web_server^} is serving PHP $php_version through PHP-FPM."
+}
+
+configure_phpmyadmin() {
+  section "Installing and securing phpMyAdmin"
+
+  pma_app_password="$(generate_password)"
+  export DEBIAN_FRONTEND=noninteractive
+
+  echo "phpmyadmin phpmyadmin/dbconfig-install boolean true" | debconf-set-selections
+  echo "phpmyadmin phpmyadmin/mysql/app-pass password $pma_app_password" | debconf-set-selections
+  echo "phpmyadmin phpmyadmin/app-password-confirm password $pma_app_password" | debconf-set-selections
+  echo "phpmyadmin phpmyadmin/reconfigure-webserver multiselect none" | debconf-set-selections
+
+  apt-get install -y phpmyadmin
+
+  # phpMyAdmin may pull the distribution's generic PHP packages. Re-assert the
+  # exact version selected by the user and validate it again.
+  configure_php_alternatives
+  systemctl restart "php${php_version}-fpm"
+  verify_php_runtime
+
+  if [[ "$web_server" == "apache" ]]; then
+    [[ -e /etc/apache2/conf-enabled/phpmyadmin.conf ]] \
+      || ln -s /etc/phpmyadmin/apache.conf /etc/apache2/conf-enabled/phpmyadmin.conf
+    apache2ctl configtest
+    systemctl reload apache2
+  else
+    cat > /etc/nginx/snippets/phpmyadmin.conf <<'PMA_NGINX'
+location = /phpmyadmin {
+    return 301 /phpmyadmin/;
+}
+
+location /phpmyadmin/ {
+    root /usr/share/;
+    index index.php index.html;
+}
+
+location ~ ^/phpmyadmin/(.+\.php)$ {
+    root /usr/share/;
+    try_files $uri =404;
+    include fastcgi_params;
+    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+    fastcgi_pass unix:/run/php/phpPHPVERSION-fpm.sock;
+}
+
+location ~* ^/phpmyadmin/(.+\.(?:css|js|jpg|jpeg|gif|png|svg|ico|woff|woff2|ttf|map))$ {
+    root /usr/share/;
+    expires 7d;
+    access_log off;
+}
+PMA_NGINX
+    sed -i "s/PHPVERSION/$php_version/g" /etc/nginx/snippets/phpmyadmin.conf
+
+    if ! grep -qF 'include snippets/phpmyadmin.conf;' "/etc/nginx/sites-available/$domain.conf"; then
+      sed -i '/server_name/a\    include snippets/phpmyadmin.conf;' "/etc/nginx/sites-available/$domain.conf"
     fi
-done
 
-[[ -n "$REDIS_UNIT" ]] || display_error "Redis systemd service could not be started" "$LINENO"
+    nginx -t
+    systemctl reload nginx
+  fi
 
-# Confirm Redis is enabled through either the real unit or its alias. If not,
-# apply the package preset without failing the installer on linked unit files.
-if ! systemctl is-enabled redis-server.service >/dev/null 2>&1 \
-   && ! systemctl is-enabled redis.service >/dev/null 2>&1; then
+  safe_write_info "phpMyAdmin Database App Password" "$pma_app_password"
+}
+
+install_python_tools() {
+  section "Installing Python tools"
+
+  python3 -m pip --version
+  if python3 -m pip install --help 2>/dev/null | grep -q -- '--break-system-packages'; then
+    python3 -m pip install --upgrade Django --break-system-packages
+  else
+    warn "This pip version does not support --break-system-packages; installing Django with the available pip syntax."
+    python3 -m pip install --upgrade Django
+  fi
+
+  [[ -e /usr/local/bin/python ]] || ln -s "$(command -v python3)" /usr/local/bin/python
+}
+
+install_nodejs() {
+  section "Installing Node.js LTS and PM2"
+
+  local nodesource_ok=false
+  if curl -fsSL --retry 3 https://deb.nodesource.com/setup_lts.x -o /tmp/snyt-nodesource.sh; then
+    if bash /tmp/snyt-nodesource.sh; then
+      nodesource_ok=true
+    fi
+  fi
+  rm -f /tmp/snyt-nodesource.sh
+
+  if [[ "$nodesource_ok" != true ]]; then
+    warn "NodeSource setup failed; the distribution Node.js package will be used."
+    rm -f /etc/apt/sources.list.d/nodesource.list /etc/apt/sources.list.d/nodesource.sources
+    apt-get update
+  fi
+
+  apt-get install -y nodejs npm || apt-get install -y nodejs
+  command -v npm >/dev/null 2>&1 || fatal "npm is unavailable after installing Node.js."
+  npm install -g pm2@latest
+  pm2 startup systemd -u root --hp /root >/tmp/snyt-pm2-startup.txt 2>&1 || true
+}
+
+install_redis() {
+  section "Installing Redis"
+
+  if package_has_candidate redis; then
+    apt-get install -y redis
+  else
+    apt-get install -y redis-server redis-tools
+  fi
+
+  systemctl daemon-reload
+  REDIS_UNIT=""
+
+  local candidate
+  for candidate in redis-server.service redis.service; do
+    if systemctl start "$candidate" >/dev/null 2>&1; then
+      REDIS_UNIT="$candidate"
+      break
+    fi
+  done
+
+  [[ -n "$REDIS_UNIT" ]] || fatal "Redis could not be started."
+
+  if ! systemctl is-enabled redis-server.service >/dev/null 2>&1 \
+    && ! systemctl is-enabled redis.service >/dev/null 2>&1; then
     systemctl preset redis-server.service >/dev/null 2>&1 \
-        || systemctl preset redis.service >/dev/null 2>&1 \
-        || true
-fi
+      || systemctl preset redis.service >/dev/null 2>&1 \
+      || true
+  fi
 
-redis-cli ping | grep -q '^PONG$'
-safe_write_info "Redis Service" "$REDIS_UNIT"
+  redis-cli ping | grep -q '^PONG$'
+  safe_write_info "Redis Service" "$REDIS_UNIT"
+}
 
-configure_firewall
-configure_fail2ban
-configure_unattended_upgrades
-install_fastfetch_motd
-SSL_ACTIVE=false
-configure_ssl
+configure_firewall() {
+  section "Configuring the UFW firewall"
 
-section "Installing add-domain helper"
-if [[ "$web_server" == apache ]]; then
-    fetch_asset apache_setup.sh /usr/local/sbin/super-sdomain
+  ufw default deny incoming
+  ufw default allow outgoing
+  ufw allow "${SSH_PORT}/tcp" comment 'SSH'
+  ufw allow 80/tcp comment 'HTTP'
+  ufw allow 443/tcp comment 'HTTPS'
+  ufw --force enable
+
+  ufw status | grep -q "${SSH_PORT}/tcp" || fatal "UFW did not preserve SSH port $SSH_PORT."
+}
+
+configure_fail2ban() {
+  section "Installing and configuring Fail2ban"
+
+  apt-get install -y fail2ban
+
+  if [[ "$web_server" == "apache" ]]; then
+    fetch_asset Apachejail.local /etc/fail2ban/jail.local
+  else
+    fetch_asset Nginxjail.local /etc/fail2ban/jail.local
+  fi
+
+  mkdir -p /etc/fail2ban/jail.d
+  cat > /etc/fail2ban/jail.d/00-snyt-ssh.local <<EOF
+[sshd]
+enabled = true
+port = $SSH_PORT
+backend = systemd
+EOF
+
+  fail2ban-client -t
+  systemctl enable --now fail2ban
+  fail2ban-client ping | grep -qi 'pong'
+}
+
+configure_unattended_upgrades() {
+  section "Configuring automatic security updates"
+
+  apt-get install -y unattended-upgrades apt-listchanges
+  cat > /etc/apt/apt.conf.d/20auto-upgrades <<'AUTO_UPGRADES'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";
+AUTO_UPGRADES
+
+  systemctl enable --now unattended-upgrades.service || true
+}
+
+install_fastfetch_motd() {
+  section "Installing the SNYT Fastfetch MOTD"
+
+  local api=""
+  local asset_url=""
+  local tmp="/tmp/fastfetch.deb"
+  local pattern=""
+
+  apt-get install -y jq figlet
+
+  case "$ARCH" in
+    amd64) pattern='linux-amd64.deb$' ;;
+    arm64) pattern='linux-aarch64.deb$' ;;
+  esac
+
+  if [[ -n "$pattern" ]]; then
+    api="$(curl -fsSL --retry 2 https://api.github.com/repos/fastfetch-cli/fastfetch/releases/latest || true)"
+    asset_url="$(jq -r --arg p "$pattern" \
+      '.assets[]? | select(.name | test($p)) | .browser_download_url' \
+      <<<"$api" | head -n1)"
+  fi
+
+  if [[ -n "$asset_url" && "$asset_url" != "null" ]]; then
+    curl -fsSL --retry 3 "$asset_url" -o "$tmp"
+    apt-get install -y "$tmp" || { dpkg -i "$tmp"; apt-get -f install -y; }
+    rm -f "$tmp"
+  elif package_has_candidate fastfetch; then
+    apt-get install -y fastfetch
+  else
+    warn "Fastfetch is unavailable; the SNYT MOTD will show the banner without system details."
+  fi
+
+  mkdir -p /etc/snyt
+  cat > /etc/snyt/fastfetch.jsonc <<'FASTFETCH_JSON'
+{
+  "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+  "logo": {
+    "type": "small",
+    "padding": { "top": 1, "right": 2 }
+  },
+  "display": { "separator": " ➜ " },
+  "modules": [
+    { "type": "title", "format": "SNYT Hosting • {user-name}@{host-name}" },
+    "separator",
+    "os",
+    "host",
+    "kernel",
+    "uptime",
+    "packages",
+    "shell",
+    "terminal",
+    "cpu",
+    "memory",
+    "swap",
+    "disk",
+    "localip",
+    "break",
+    "colors"
+  ]
+}
+FASTFETCH_JSON
+
+  cat > /etc/update-motd.d/01-snyt <<'SNYT_MOTD'
+#!/usr/bin/env bash
+printf '\n'
+if command -v figlet >/dev/null 2>&1; then
+  figlet -f slant SNYT 2>/dev/null
 else
-    fetch_asset nginx_setup.sh /usr/local/sbin/super-sdomain
+  echo '=== SNYT Hosting ==='
 fi
-chmod 700 /usr/local/sbin/super-sdomain
-ln -sfn /usr/local/sbin/super-sdomain /root/super-sdomain.sh
-
-safe_write_info "Primary Domain" "$domain"
-safe_write_info "Web Server" "$web_server"
-safe_write_info "Web Server Version" "$(if [[ $web_server == apache ]]; then apache2 -v | head -n1; else nginx -v 2>&1; fi)"
-safe_write_info "PHP Version" "$(php -v | head -n1)"
-safe_write_info "PHP-FPM Socket" "/run/php/php${php_version}-fpm.sock"
-safe_write_info "Redis Version" "$(redis-server --version)"
-safe_write_info "Node.js Version" "$(node --version)"
-safe_write_info "Python Version" "$(python3 --version)"
-safe_write_info "Credentials File" "$INFO_FILE (permissions 600)"
-chmod 600 "$INFO_FILE"
-
-clear
-echo -e "${MAGENTA}=========================================${NC}"
-echo -e "${MAGENTA}SNYT SuperServer $SUPERSERVER_VERSION installation completed${NC}"
-echo -e "${MAGENTA}System: $PRETTY_NAME${NC}"
-if [[ "${SSL_ACTIVE:-false}" == true ]]; then
-    echo -e "${MAGENTA}Web: https://$domain${NC}"
-else
-    echo -e "${MAGENTA}Web: http://$domain (SSL pending)${NC}"
+printf 'Managed by SNYT SuperServer\n\n'
+if command -v fastfetch >/dev/null 2>&1; then
+  fastfetch --config /etc/snyt/fastfetch.jsonc
 fi
-echo -e "${MAGENTA}PHP: $php_version | Server: $web_server${NC}"
-echo -e "${MAGENTA}Credentials: $INFO_FILE${NC}"
-echo -e "${MAGENTA}Log: $LOG_FILE${NC}"
-echo -e "${MAGENTA}Add a domain: super-sdomain${NC}"
-echo -e "${MAGENTA}=========================================${NC}"
+printf '\n'
+SNYT_MOTD
+  chmod 0755 /etc/update-motd.d/01-snyt
+}
+
+configure_ssl() {
+  section "Configuring Let's Encrypt SSL"
+
+  local certbot_args=(
+    --non-interactive
+    --agree-tos
+    --redirect
+    --email "$email"
+    -d "$domain"
+  )
+
+  if [[ "$web_server" == "apache" ]]; then
+    if certbot --apache "${certbot_args[@]}"; then
+      SSL_ACTIVE=true
+    fi
+  else
+    if certbot --nginx "${certbot_args[@]}"; then
+      SSL_ACTIVE=true
+    fi
+  fi
+
+  if [[ "$SSL_ACTIVE" == true ]]; then
+    certbot renew --dry-run || warn "The Certbot renewal dry-run failed; inspect $LOG_FILE."
+    safe_write_info "SSL Status" "Active with automatic renewal"
+    safe_write_info "Primary URL" "https://$domain"
+    safe_write_info "phpMyAdmin URL" "https://$domain/phpmyadmin/"
+  else
+    warn "SSL could not be issued now. Installation will continue over HTTP."
+    echo "After fixing DNS and ports, run: certbot --$web_server -d $domain --redirect"
+    safe_write_info "SSL Status" "Pending; run: certbot --$web_server -d $domain --redirect"
+    safe_write_info "Primary URL" "http://$domain"
+    safe_write_info "phpMyAdmin URL" "http://$domain/phpmyadmin/"
+  fi
+}
+
+install_domain_helper() {
+  section "Installing the add-domain helper"
+
+  if [[ "$web_server" == "apache" ]]; then
+    fetch_asset apache_setup.sh /usr/local/sbin/super-sdomain 0700
+  else
+    fetch_asset nginx_setup.sh /usr/local/sbin/super-sdomain 0700
+  fi
+
+  ln -sfn /usr/local/sbin/super-sdomain /root/super-sdomain.sh
+}
+
+final_validation() {
+  section "Running final validation"
+
+  configure_php_alternatives
+  verify_php_runtime
+
+  if [[ "$web_server" == "apache" ]]; then
+    apache2ctl configtest
+    systemctl is-active --quiet apache2
+  else
+    nginx -t
+    systemctl is-active --quiet nginx
+  fi
+
+  systemctl is-active --quiet mariadb
+  systemctl is-active --quiet "php${php_version}-fpm"
+  systemctl is-active --quiet fail2ban
+  redis-cli ping | grep -q '^PONG$'
+  command -v node >/dev/null
+  command -v npm >/dev/null
+  command -v python3 >/dev/null
+  command -v composer >/dev/null
+
+  ok "All required services passed validation."
+}
+
+write_final_info() {
+  safe_write_info "Installation Status" "Complete"
+  safe_write_info "Primary Domain" "$domain"
+  safe_write_info "SSL Email" "$email"
+  safe_write_info "Web Server" "$web_server"
+  safe_write_info "Web Server Version" "$(
+    if [[ "$web_server" == "apache" ]]; then
+      apache2 -v | head -n1
+    else
+      nginx -v 2>&1
+    fi
+  )"
+  safe_write_info "PHP Version" "$(php -v | head -n1)"
+  safe_write_info "PHP-FPM Service" "php${php_version}-fpm"
+  safe_write_info "PHP-FPM Socket" "/run/php/php${php_version}-fpm.sock"
+  safe_write_info "Redis Version" "$(redis-server --version)"
+  safe_write_info "Node.js Version" "$(node --version)"
+  safe_write_info "npm Version" "$(npm --version)"
+  safe_write_info "Python Version" "$(python3 --version)"
+  safe_write_info "Composer Version" "$(composer --version 2>/dev/null | head -n1)"
+  safe_write_info "Credentials File" "$INFO_FILE (permissions 600)"
+  safe_write_info "Installation Log" "$LOG_FILE"
+
+  chmod 600 "$INFO_FILE"
+  printf '%s\n' "$SUPERSERVER_VERSION" > "$STATE_FILE"
+  chmod 600 "$STATE_FILE"
+}
+
+show_completion() {
+  local scheme="http"
+  [[ "$SSL_ACTIVE" == true ]] && scheme="https"
+
+  echo
+  echo -e "${MAGENTA}╭──────────────────────────────────────────────────────────╮${NC}"
+  echo -e "${MAGENTA}│${NC}  ${GREEN}${BOLD}✔ SNYT SuperServer installation completed${NC}              ${MAGENTA}│${NC}"
+  echo -e "${MAGENTA}├──────────────────────────────────────────────────────────┤${NC}"
+  printf "${MAGENTA}│${NC}  %-56s${MAGENTA}│${NC}\n" "Version: $SUPERSERVER_VERSION"
+  printf "${MAGENTA}│${NC}  %-56s${MAGENTA}│${NC}\n" "System: $PRETTY_NAME"
+  printf "${MAGENTA}│${NC}  %-56s${MAGENTA}│${NC}\n" "Web: $scheme://$domain"
+  printf "${MAGENTA}│${NC}  %-56s${MAGENTA}│${NC}\n" "Stack: ${web_server^} + PHP $php_version (FPM)"
+  printf "${MAGENTA}│${NC}  %-56s${MAGENTA}│${NC}\n" "Credentials: $INFO_FILE"
+  printf "${MAGENTA}│${NC}  %-56s${MAGENTA}│${NC}\n" "Log: $LOG_FILE"
+  printf "${MAGENTA}│${NC}  %-56s${MAGENTA}│${NC}\n" "Add a domain: super-sdomain"
+  echo -e "${MAGENTA}╰──────────────────────────────────────────────────────────╯${NC}"
+  echo
+}
+
+main() {
+  check_previous_installation
+  detect_os
+  detect_ssh_port
+  print_banner
+
+  echo "Detected: $PRETTY_NAME ($VERSION_CODENAME / $ARCH)"
+  echo "SSH port: $SSH_PORT"
+  echo
+
+  while true; do
+    domain="$(prompt_nonempty 'Primary web domain (example.com): ')"
+    validate_domain "$domain" && break
+    warn "Invalid domain format."
+  done
+
+  while true; do
+    email="$(prompt_nonempty "Email for Let's Encrypt: ")"
+    validate_email "$email" && break
+    warn "Invalid email format."
+  done
+
+  choose_web_server
+  install_base_packages
+  configure_repositories
+  choose_php_version
+  show_installation_summary
+
+  install_web_server
+  install_certbot
+  configure_mariadb
+  install_php
+  create_primary_website
+  configure_phpmyadmin
+  install_python_tools
+  install_nodejs
+  install_redis
+  configure_firewall
+  configure_fail2ban
+  configure_unattended_upgrades
+  install_fastfetch_motd
+  configure_ssl
+  install_domain_helper
+  final_validation
+  write_final_info
+  show_completion
+}
+
+main "$@"
