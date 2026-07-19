@@ -3,12 +3,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/abdomuftah/SuperServer/releases"><img alt="Release" src="https://img.shields.io/badge/release-v3.4.0-7c3aed?style=flat-square"></a>
-  <a href="https://github.com/abdomuftah/SuperServer/actions"><img alt="Validation" src="https://github.com/abdomuftah/SuperServer/actions/workflows/validate.yml/badge.svg"></a>
-  <img alt="Shell" src="https://img.shields.io/badge/shell-Bash-4EAA25?style=flat-square&logo=gnubash&logoColor=white">
-  <img alt="Ubuntu" src="https://img.shields.io/badge/Ubuntu-22.04%20%7C%2024.04%20%7C%2026.04-E95420?style=flat-square&logo=ubuntu&logoColor=white">
-  <img alt="Debian" src="https://img.shields.io/badge/Debian-11%20%7C%2012%20%7C%2013-A81D33?style=flat-square&logo=debian&logoColor=white">
-  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square"></a>
+  <a href="https://github.com/abdomuftah/SuperServer/releases"><img alt="Release v3.4.0" src="./assets/readme/badge-release.svg" height="28"></a>
+  <a href="https://github.com/abdomuftah/SuperServer/actions/workflows/validate.yml"><img alt="Validation passing" src="./assets/readme/badge-validation.svg" height="28"></a>
+  <img alt="Shell Bash" src="./assets/readme/badge-shell.svg" height="28">
+  <img alt="Ubuntu 22.04, 24.04 and 26.04" src="./assets/readme/badge-ubuntu.svg" height="28">
+  <img alt="Debian 11, 12 and 13" src="./assets/readme/badge-debian.svg" height="28">
+  <a href="./LICENSE"><img alt="Apache 2.0 License" src="./assets/readme/badge-license.svg" height="28"></a>
 </p>
 
 <p align="center">
