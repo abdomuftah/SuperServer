@@ -8,7 +8,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-SUPERSERVER_VERSION="3.3.0"
+SUPERSERVER_VERSION="3.3.1"
 REPO_RAW="https://raw.githubusercontent.com/abdomuftah/SuperServer/main"
 INFO_DIR="/root/SNYT"
 INFO_FILE="$INFO_DIR/serverInfo.txt"
@@ -37,7 +37,7 @@ mysql_admin_user="snyt_admin"
 mysql_admin_password=""
 pma_app_password=""
 
-PHP_VERSION_CANDIDATES=(8.5 8.4 8.3 8.2 8.1)
+PHP_VERSION_CANDIDATES=(8.1 8.2 8.3 8.4 8.5)
 PHP_CORE_SUFFIXES=(
   cli common fpm curl mysql mbstring xml zip intl gd bcmath
 )
@@ -45,7 +45,9 @@ PHP_OPTIONAL_SUFFIXES=(
   redis sqlite3 soap bz2 imagick tidy
 )
 AVAILABLE_PHP_VERSIONS=()
+UNAVAILABLE_PHP_VERSIONS=()
 PHP_SELECTED_VERSIONS=()
+PHP_SELECTION_ERROR=""
 
 usage() {
   cat <<EOF
@@ -417,11 +419,14 @@ php_missing_core_packages() {
 discover_php_versions() {
   local version
   AVAILABLE_PHP_VERSIONS=()
+  UNAVAILABLE_PHP_VERSIONS=()
   PHP_SELECTED_VERSIONS=()
 
   for version in "${PHP_VERSION_CANDIDATES[@]}"; do
     if php_version_complete "$version"; then
       AVAILABLE_PHP_VERSIONS+=("$version")
+    else
+      UNAVAILABLE_PHP_VERSIONS+=("$version")
     fi
   done
 
@@ -430,21 +435,45 @@ discover_php_versions() {
     for version in "${PHP_VERSION_CANDIDATES[@]}"; do
       echo "  PHP $version missing: $(php_missing_core_packages "$version")"
     done
-    fatal "No complete PHP version was found. SuperServer requires CLI, FPM and all core extensions for the same version."
+    fatal "No installable PHP version was found for this operating system and its enabled repositories."
   fi
+}
+
+php_candidate_is_available() {
+  local wanted="$1"
+  local version
+
+  for version in "${AVAILABLE_PHP_VERSIONS[@]}"; do
+    [[ "$version" == "$wanted" ]] && return 0
+  done
+  return 1
+}
+
+php_version_note() {
+  local version="$1"
+
+  case "$version" in
+    8.1) printf 'legacy compatibility' ;;
+    8.2) printf 'wide compatibility' ;;
+    8.3) printf 'modern compatibility' ;;
+    8.4) printf 'modern release' ;;
+    8.5) printf 'newest candidate' ;;
+    *) printf 'PHP-FPM' ;;
+  esac
 }
 
 parse_php_selection() {
   local input="$1"
-  local max="${#AVAILABLE_PHP_VERSIONS[@]}"
-  local token start end number
+  local max="${#PHP_VERSION_CANDIDATES[@]}"
+  local token start end number candidate
   local -a tokens=()
   local -A selected=()
 
+  PHP_SELECTION_ERROR=""
   input="${input//[[:space:]]/}"
   [[ -n "$input" ]] || input="all"
 
-  if [[ "$input" == "all" || "$input" == "ALL" || "$input" == "*" ]]; then
+  if [[ "$input" == "all" || "$input" == "ALL" || "$input" == "*" || "$input" == "available" ]]; then
     PHP_SELECTED_VERSIONS=("${AVAILABLE_PHP_VERSIONS[@]}")
     return 0
   fi
@@ -454,16 +483,26 @@ parse_php_selection() {
     if [[ "$token" =~ ^([0-9]+)-([0-9]+)$ ]]; then
       start="${BASH_REMATCH[1]}"
       end="${BASH_REMATCH[2]}"
-      (( start <= end )) || return 1
+      if (( start > end )); then
+        PHP_SELECTION_ERROR="Invalid range: $token"
+        return 1
+      fi
       for (( number=start; number<=end; number++ )); do
-        (( number >= 1 && number <= max )) || return 1
+        if (( number < 1 || number > max )); then
+          PHP_SELECTION_ERROR="Option $number is outside the displayed range."
+          return 1
+        fi
         selected["$number"]=1
       done
     elif [[ "$token" =~ ^[0-9]+$ ]]; then
       number="$token"
-      (( number >= 1 && number <= max )) || return 1
+      if (( number < 1 || number > max )); then
+        PHP_SELECTION_ERROR="Option $number is outside the displayed range."
+        return 1
+      fi
       selected["$number"]=1
     else
+      PHP_SELECTION_ERROR="Use option numbers, comma-separated options, a range, or all."
       return 1
     fi
   done
@@ -471,43 +510,71 @@ parse_php_selection() {
   PHP_SELECTED_VERSIONS=()
   for (( number=1; number<=max; number++ )); do
     [[ -n "${selected[$number]:-}" ]] || continue
-    PHP_SELECTED_VERSIONS+=("${AVAILABLE_PHP_VERSIONS[$((number - 1))]}")
+    candidate="${PHP_VERSION_CANDIDATES[$((number - 1))]}"
+
+    if ! php_candidate_is_available "$candidate"; then
+      PHP_SELECTION_ERROR="PHP $candidate cannot be installed on $PRETTY_NAME with the currently supported repositories. Missing: $(php_missing_core_packages "$candidate")"
+      PHP_SELECTED_VERSIONS=()
+      return 1
+    fi
+
+    PHP_SELECTED_VERSIONS+=("$candidate")
   done
 
-  [[ ${#PHP_SELECTED_VERSIONS[@]} -gt 0 ]]
+  if [[ ${#PHP_SELECTED_VERSIONS[@]} -eq 0 ]]; then
+    PHP_SELECTION_ERROR="Select at least one PHP version marked AVAILABLE."
+    return 1
+  fi
+
+  return 0
 }
 
 choose_php_versions() {
   local selection=""
   local default_selection=""
-  local index version
+  local index version status note recommended_version
 
-  section "Multi-PHP version selection"
+  section "PHP version selection"
   discover_php_versions
 
-  echo "Install one or several complete PHP-FPM versions."
-  echo "Every displayed version has CLI, FPM and all required core extensions."
+  echo "All supported PHP choices are shown below."
+  echo "Availability is detected live from this server's operating system and repositories."
   echo
 
-  for index in "${!AVAILABLE_PHP_VERSIONS[@]}"; do
-    version="${AVAILABLE_PHP_VERSIONS[$index]}"
-    if [[ "$index" -eq 0 ]]; then
-      printf '  %d) PHP %s  %b\n' "$((index + 1))" "$version" "${GREEN}(newest complete version)${NC}"
-    elif [[ "$version" == "8.2" ]]; then
-      printf '  %d) PHP %s  %b\n' "$((index + 1))" "$version" "${YELLOW}(legacy compatibility)${NC}"
+  recommended_version="${AVAILABLE_PHP_VERSIONS[$((${#AVAILABLE_PHP_VERSIONS[@]} - 1))]}"
+
+  for index in "${!PHP_VERSION_CANDIDATES[@]}"; do
+    version="${PHP_VERSION_CANDIDATES[$index]}"
+    note="$(php_version_note "$version")"
+
+    if php_candidate_is_available "$version"; then
+      status="${GREEN}AVAILABLE${NC}"
+      if [[ "$version" == "$recommended_version" ]]; then
+        printf '  %d) PHP %-3s  [%b]  %s %b\n' \
+          "$((index + 1))" "$version" "$status" "$note" "${GREEN}(recommended available version)${NC}"
+      else
+        printf '  %d) PHP %-3s  [%b]  %s\n' \
+          "$((index + 1))" "$version" "$status" "$note"
+      fi
     else
-      printf '  %d) PHP %s\n' "$((index + 1))" "$version"
+      status="${RED}UNAVAILABLE${NC}"
+      printf '  %d) PHP %-3s  [%b]  %s\n' \
+        "$((index + 1))" "$version" "$status" "$note"
     fi
   done
 
   echo
-  echo "Examples: 1  |  1,3  |  1-3  |  all"
+  echo -e "${DIM}Only versions marked AVAILABLE can be installed safely.${NC}"
+  echo -e "${DIM}Selecting an unavailable version prints its missing package details.${NC}"
+  echo "Examples: 2  |  2,4  |  2-5  |  all"
+  echo '"all" installs every version currently marked AVAILABLE.'
+
   while true; do
-    read -r -p "Versions to install [all]: " selection
+    read -r -p "PHP versions to install [all]: " selection
     if parse_php_selection "$selection"; then
       break
     fi
-    warn "Invalid selection. Use numbers, comma-separated values, a range, or all."
+    warn "$PHP_SELECTION_ERROR"
   done
 
   if [[ ${#PHP_SELECTED_VERSIONS[@]} -eq 1 ]]; then

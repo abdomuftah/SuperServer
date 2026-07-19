@@ -6,7 +6,7 @@
 
 Choose **Apache or Nginx**, install one or several **PHP-FPM versions**, secure the server, and validate every service before completion.
 
-[![Version](https://img.shields.io/badge/version-3.3.0-7c5cff?style=for-the-badge)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.3.1-7c5cff?style=for-the-badge)](CHANGELOG.md)
 [![Bash](https://img.shields.io/badge/Bash-installer-4EAA25?style=for-the-badge&logo=gnubash&logoColor=white)](SuperServer.sh)
 [![Ubuntu](https://img.shields.io/badge/Ubuntu-22.04%20%7C%2024.04%20%7C%2026.04-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](#-supported-systems)
 [![Debian](https://img.shields.io/badge/Debian-11%20%7C%2012%20%7C%2013-A81D33?style=for-the-badge&logo=debian&logoColor=white)](#-supported-systems)
@@ -77,23 +77,33 @@ Choose **Apache or Nginx**, install one or several **PHP-FPM versions**, secure 
 
 ---
 
-## 🆕 Version 3.3.0
+## 🆕 Version 3.3.1
 
-### Multi-PHP installation
+### Visible PHP choices with live availability
 
-SuperServer now lets you install one or several complete PHP-FPM versions in one run:
+SuperServer always displays the full PHP choice list instead of hiding versions that are unavailable on the current operating system:
 
 ```text
-Multi-PHP version selection
+PHP version selection
 
-1) PHP 8.5  (newest complete version)
-2) PHP 8.4
-3) PHP 8.3
-4) PHP 8.2  (legacy compatibility)
+1) PHP 8.1  [UNAVAILABLE]  legacy compatibility
+2) PHP 8.2  [UNAVAILABLE]  wide compatibility
+3) PHP 8.3  [UNAVAILABLE]  modern compatibility
+4) PHP 8.4  [UNAVAILABLE]  modern release
+5) PHP 8.5  [AVAILABLE]    newest candidate (recommended available version)
 
-Examples: 1 | 1,3 | 1-3 | all
-Versions to install [all]:
+Examples: 2 | 2,4 | 2-5 | all
+PHP versions to install [all]:
 ```
+
+The status is detected live after compatible repositories are configured:
+
+- **AVAILABLE** means CLI, FPM and every required core extension can be installed safely.
+- **UNAVAILABLE** means at least one required package is missing on the current OS/repository combination.
+- Selecting an unavailable option is rejected and then shows the exact missing-package list.
+- `all` installs every version currently marked **AVAILABLE**.
+
+On systems where multiple complete versions exist, SuperServer installs all selected PHP-FPM services in one run.
 
 When several versions are selected, you choose one default version for:
 
@@ -104,7 +114,7 @@ When several versions are selected, you choose one default version for:
 Every additional domain can use any active PHP-FPM socket independently.
 
 > [!NOTE]
-> Only versions with a complete package set are displayed. Available versions depend on the operating system and compatible repositories.
+> Every supported PHP choice is displayed. Only versions marked **AVAILABLE** can be selected. Package availability still depends on the operating system and compatible repositories.
 
 ### Automatic SSL email for new domains
 
@@ -199,7 +209,7 @@ flowchart LR
 
 ## 🐘 Multi-PHP behavior
 
-SuperServer validates these packages for every displayed PHP version:
+SuperServer validates these packages before marking a PHP version **AVAILABLE**:
 
 ```text
 phpX.Y-cli
@@ -363,7 +373,7 @@ certbot --nginx --email "$(awk -F': ' '$1=="SSL Email"{print $2}' /root/SNYT/ser
 
 Use `--apache` instead of `--nginx` on Apache installations.
 
-### A PHP version is not shown
+### A PHP version is marked unavailable
 
 Inspect package availability:
 
@@ -371,7 +381,7 @@ Inspect package availability:
 apt-cache policy php8.3-cli php8.3-fpm php8.3-mysql
 ```
 
-A version is intentionally hidden when any required package is unavailable.
+A version remains visible but is marked **UNAVAILABLE** when any required package is missing. The installer prints the missing packages and refuses unsafe selection.
 
 ### Previous installation guard
 

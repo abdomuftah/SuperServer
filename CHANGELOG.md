@@ -2,6 +2,20 @@
 
 All notable changes to SNYT SuperServer are documented here.
 
+## [3.3.1] - 2026-07-19
+
+### Changed
+
+- The PHP menu now always displays PHP 8.1, 8.2, 8.3, 8.4 and 8.5.
+- Every version is labeled `AVAILABLE` or `UNAVAILABLE` using live package checks.
+- `all` now explicitly means every version currently marked `AVAILABLE`.
+- PHP choices are listed in ascending order for easier selection.
+
+### Fixed
+
+- Users can now see older PHP choices even when the current operating system repository does not publish them.
+- Selecting an unavailable PHP version now shows the exact missing core packages instead of silently hiding the version.
+
 ## [3.3.0] - 2026-07-19
 
 ### Added
