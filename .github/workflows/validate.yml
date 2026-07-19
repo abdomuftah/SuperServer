@@ -9,25 +9,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Install validators
         run: sudo apt-get update && sudo apt-get install -y shellcheck php-cli
+
       - name: Bash syntax
         run: |
           bash -n SuperServer.sh
           bash -n assets/apache_setup.sh
           bash -n assets/nginx_setup.sh
           bash -n assets/super-server.sh
-      - name: ShellCheck (informational during 3.4 testing)
+
+      - name: ShellCheck errors
+        run: |
+          shellcheck -x --severity=error SuperServer.sh
+          shellcheck --severity=error assets/apache_setup.sh assets/nginx_setup.sh assets/super-server.sh
+
+      - name: ShellCheck warnings
         continue-on-error: true
         run: |
-          shellcheck -x SuperServer.sh
-          shellcheck assets/apache_setup.sh assets/nginx_setup.sh assets/super-server.sh
+          shellcheck -x --severity=warning SuperServer.sh
+          shellcheck --severity=warning assets/apache_setup.sh assets/nginx_setup.sh assets/super-server.sh
+
       - name: PHP syntax
         run: php -l assets/index.php
-      - name: Required files
-        run: |
-          test -f README.md
-          test -f CHANGELOG.md
-          test -f assets/php.ini
-          test -f assets/ApacheExample.conf
-          test -f assets/nginxExample.conf
+
+      - name: Project consistency
+        run: python3 tests/validate.py

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/abdomuftah/SuperServer/releases"><img alt="Release v3.4.2" src="./assets/readme/badge-release.svg" height="28"></a>
+  <a href="https://github.com/abdomuftah/SuperServer/releases"><img alt="Release v3.5.0" src="./assets/readme/badge-release.svg" height="28"></a>
   <a href="https://github.com/abdomuftah/SuperServer/actions/workflows/validate.yml"><img alt="Validation passing" src="./assets/readme/badge-validation.svg" height="28"></a>
   <img alt="Shell Bash" src="./assets/readme/badge-shell.svg" height="28">
   <img alt="Ubuntu 22.04, 24.04 and 26.04" src="./assets/readme/badge-ubuntu.svg" height="28">
@@ -159,7 +159,7 @@ Sensitive credentials are never displayed on the page.
 
 ## 🐘 Multi-PHP
 
-SuperServer configures the compatible [Sury PHP repository](https://packages.sury.org/php/) and checks every selected PHP version before installation.
+SuperServer uses a **validated provider chain** for Multi-PHP. It tries the direct [Sury PHP repository](https://packages.sury.org/php/) first, then the Ondřej Launchpad PPA on supported Ubuntu releases, and finally the distribution repositories. Only one PHP provider remains active, and the installer refuses to mix packages built for another operating-system codename.
 
 | Version | Label | Selection behavior |
 |:--:|---|---|
@@ -169,21 +169,25 @@ SuperServer configures the compatible [Sury PHP repository](https://packages.sur
 | PHP 8.4 | Supported | Included in `all` |
 | PHP 8.5 | Newest | Recommended default |
 
-Selection examples:
+The PHP selector is a terminal checklist:
 
 ```text
-2
-2,3,4
-2-5
-all
-all+legacy
+> 1) [ ] PHP 8.1 — legacy
+  2) [x] PHP 8.2
+  3) [x] PHP 8.3
+  4) [x] PHP 8.4
+  5) [x] PHP 8.5
 ```
 
-`all` installs PHP 8.2–8.5. `all+legacy` also includes PHP 8.1.
+Use **↑/↓** to move, **Space** to toggle a release, and **Enter** to confirm. PHP 8.1 starts unchecked because it is intended only for legacy applications.
 
 ### PHP-FPM only
 
-Both Apache and Nginx use PHP-FPM sockets. SuperServer intentionally avoids `libapache2-mod-php`, preventing competing PHP handlers and preserving per-domain PHP selection.
+Both Apache and Nginx use PHP-FPM. SuperServer intentionally avoids `libapache2-mod-php`, preventing competing PHP handlers and preserving per-domain PHP selection.
+
+The installer no longer assumes that every distribution uses one fixed socket path. It reads the active FPM pool configuration, validates and restarts the service, recreates `/run/php` when required, waits for the real Unix socket or TCP listener, and writes that detected endpoint into the Apache or Nginx site configuration. A systemd-tmpfiles rule keeps the runtime directory available after reboot.
+
+SuperServer also keeps the distribution-owned `php.ini` files intact. Its settings are installed as `conf.d/99-snyt.ini` fragments for CLI and FPM, which is safer across PHP 8.1–8.5 and future package upgrades.
 
 ---
 
@@ -212,11 +216,7 @@ Imagick, Tidy, XML-RPC, GMP, LDAP, IMAP, SNMP and APCu
 <details>
 <summary><strong>Custom</strong> — select the modules required by your application</summary>
 
-The installer presents a numbered menu and accepts values such as:
-
-```text
-1-10,12,15
-```
+The installer presents the same interactive checklist used by the PHP and component selectors. Move with **↑/↓**, toggle modules with **Space**, and confirm with **Enter**. A number/range interface remains available automatically in non-interactive terminals.
 
 Core packages are always installed:
 
@@ -249,6 +249,27 @@ Some module names are provided by grouped packages:
 Choose Apache for `.htaccess` compatibility and traditional hosting workflows. Choose Nginx for reverse proxying, Docker applications, and lightweight high-performance deployments.
 
 ---
+
+
+## 🔁 Safe source fallbacks
+
+SuperServer never enables several competing repositories for the same component at once. It tries providers in order, validates the selected package set, removes a failed managed source, and only then activates the next provider.
+
+| Component | Primary source | Safe fallback |
+|---|---|---|
+| PHP | Sury direct repository | Ondřej PPA on supported Ubuntu, then distribution packages |
+| MariaDB | Distribution packages | Official MariaDB repository only when the distribution has no candidate |
+| Redis | Official Redis repository | Distribution `redis-server` packages |
+| Node.js | NodeSource LTS | Distribution `nodejs` and `npm` |
+| Docker | Official Docker repository | Distribution `docker.io` and Compose package |
+| Certbot | Distribution Certbot plugin | Official Snap package |
+| Composer | Verified official installer | Distribution Composer package |
+| Fastfetch | Official GitHub release | Distribution Fastfetch package |
+
+Apache, Nginx, Python and Java intentionally use the operating-system repositories. CrowdSec uses its official repository because a second independent package source is not considered a safe equivalent.
+
+> [!CAUTION]
+> A fallback is used only when it can still satisfy the approved installation plan. SuperServer does not silently replace PHP 8.2–8.5 with a different version and never mixes packages from another Ubuntu or Debian codename.
 
 ## 🛡️ Security
 

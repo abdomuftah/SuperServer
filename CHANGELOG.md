@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.5.0 — Clean core and resilient package sources
+
+- Removed the duplicated legacy function implementations that had accumulated in the single-file installer.
+- Fixed the PHP web-runtime failure caused by assuming `/run/php/phpX.Y-fpm.sock` always exists.
+- Added dynamic PHP-FPM listener discovery for Unix sockets and TCP listeners.
+- Added PHP-FPM configuration tests, service recovery, listener wait loops, and journal diagnostics.
+- Reordered package installation so general APT transactions finish before the final PHP-FPM validation and website creation.
+- Added safe one-at-a-time provider fallback chains for PHP, MariaDB, Redis, Node.js, Docker, Certbot and Composer.
+- Kept CrowdSec on its official repository and prevented unsafe cross-codename repository mixing.
+- Updated `super-sdomain` for dynamically detected PHP-FPM endpoints.
+- Moved Django and Gunicorn into an isolated Python virtual environment instead of modifying distribution-managed Python packages.
+- Added provider details to `/root/SNYT/serverInfo.txt`.
+- Strengthened final validation and failure diagnostics.
+- Fixed provider discovery accidentally clearing the PHP versions chosen in the wizard.
+- Added a persistent `/run/php` tmpfiles rule and runtime-directory recovery before every FPM restart.
+- Changed PHP tuning from replacing the distribution `php.ini` to isolated `conf.d/99-snyt.ini` fragments.
+- Corrected CrowdSec AppSec acquisition syntax, configured the Nginx bouncer `APPSEC_URL`, and added listener validation.
+- Added a PyPI-to-distribution fallback for Django and Gunicorn.
+
 ## 3.4.2 — Keyboard checklists and web PHP validation fix
 
 - Added interactive terminal checklists for every multi-select screen.
