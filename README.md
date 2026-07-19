@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/abdomuftah/SuperServer/releases"><img alt="Release v3.4.1" src="./assets/readme/badge-release.svg" height="28"></a>
+  <a href="https://github.com/abdomuftah/SuperServer/releases"><img alt="Release v3.4.2" src="./assets/readme/badge-release.svg" height="28"></a>
   <a href="https://github.com/abdomuftah/SuperServer/actions/workflows/validate.yml"><img alt="Validation passing" src="./assets/readme/badge-validation.svg" height="28"></a>
   <img alt="Shell Bash" src="./assets/readme/badge-shell.svg" height="28">
   <img alt="Ubuntu 22.04, 24.04 and 26.04" src="./assets/readme/badge-ubuntu.svg" height="28">
@@ -28,7 +28,10 @@
 
 
 > [!TIP]
-> **Wizard-first behavior:** SuperServer now collects every choice before running `apt`, changing repositories, or installing services. Multi-select screens use interactive `[x]` / `[ ]` checkboxes with toggle commands.
+> **Wizard-first behavior:** SuperServer now collects every choice before running `apt`, changing repositories, or installing services. Multi-select screens use terminal checklists: move with **↑/↓**, toggle with **Space**, and confirm with **Enter**.
+
+> [!NOTE]
+> In non-interactive shells or terminals without cursor controls, SuperServer automatically falls back to number and range input.
 
 ## 🚀 Quick install
 

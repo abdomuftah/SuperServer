@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.4.2 — Keyboard checklists and web PHP validation fix
+
+- Added interactive terminal checklists for every multi-select screen.
+- Use the Up and Down arrow keys to move, Space to toggle, and Enter to confirm.
+- Retained the number/range checklist as an automatic fallback for non-interactive or limited terminals.
+- Fixed the primary-domain PHP validation test being blocked by the Nginx hidden-file rule.
+- Runtime validation now uses a randomized non-hidden PHP filename.
+- Added HTTP status and web-server error-log diagnostics when PHP validation fails.
+- Updated README keyboard instructions and release badge.
+
 ## 3.4.1 — Wizard-first checklists and optional-component fix
 
 - Moved all visible package updates and repository changes until after the final installation-plan approval.

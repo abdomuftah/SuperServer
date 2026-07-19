@@ -8,7 +8,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-SUPERSERVER_VERSION="3.4.1"
+SUPERSERVER_VERSION="3.4.2"
 REPO_RAW="https://raw.githubusercontent.com/abdomuftah/SuperServer/main"
 INFO_DIR="/root/SNYT"
 INFO_FILE="$INFO_DIR/serverInfo.txt"
@@ -930,9 +930,14 @@ create_primary_website() {
 }
 
 verify_php_through_web_server() {
-  local check_file="/var/www/html/$domain/.snyt-php-runtime-check.php"
+  local check_name="snyt-php-runtime-check-$(openssl rand -hex 4).php"
+  local check_file="/var/www/html/$domain/$check_name"
+  local response_file=""
   local response=""
+  local http_code="000"
   local attempt
+
+  response_file="$(mktemp /tmp/snyt-php-response.XXXXXX)"
 
   cat > "$check_file" <<'PHP_CHECK'
 <?php echo PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION;
@@ -941,21 +946,45 @@ PHP_CHECK
   chmod 0644 "$check_file"
 
   for attempt in 1 2 3 4 5; do
+    : > "$response_file"
+
     if [[ "$SSL_ACTIVE" == true && -f "/etc/letsencrypt/live/$domain/fullchain.pem" ]]; then
-      response="$(curl -kfsS --max-time 10 --resolve "$domain:443:127.0.0.1" \
-        "https://$domain/.snyt-php-runtime-check.php" 2>/dev/null || true)"
+      http_code="$(
+        curl -kLsS --max-time 10 \
+          --resolve "$domain:443:127.0.0.1" \
+          -o "$response_file" \
+          -w '%{http_code}' \
+          "https://$domain/$check_name" 2>/dev/null || true
+      )"
     else
-      response="$(curl -fsS --max-time 10 -H "Host: $domain" \
-        "http://127.0.0.1/.snyt-php-runtime-check.php" 2>/dev/null || true)"
+      http_code="$(
+        curl -LsS --max-time 10 \
+          -H "Host: $domain" \
+          -o "$response_file" \
+          -w '%{http_code}' \
+          "http://127.0.0.1/$check_name" 2>/dev/null || true
+      )"
     fi
+
+    response="$(tr -d '\r\n[:space:]' < "$response_file" 2>/dev/null || true)"
     [[ "$response" == "$php_version" ]] && break
     sleep 2
   done
 
-  rm -f "$check_file"
+  rm -f "$check_file" "$response_file"
 
-  [[ "$response" == "$php_version" ]] || fatal \
-    "Web PHP mismatch: selected $php_version, web server returned '${response:-no response}'."
+  if [[ "$response" != "$php_version" ]]; then
+    if [[ "$web_server" == "nginx" ]]; then
+      warn "Nginx error-log tail:"
+      tail -n 12 /var/log/nginx/error.log 2>/dev/null || true
+    else
+      warn "Apache error-log tail:"
+      tail -n 12 /var/log/apache2/error.log 2>/dev/null || true
+    fi
+
+    fatal "Web PHP mismatch: selected $php_version, HTTP status ${http_code:-000}, response '${response:-empty}'."
+  fi
+
   ok "${web_server^} is serving PHP $php_version through PHP-FPM."
 }
 
@@ -1433,9 +1462,9 @@ main() {
 
 
 # ==============================================================================
-# SuperServer v3.4.1 overrides
+# SuperServer v3.4.2 overrides
 # The original installer functions remain above for backwards readability; the
-# definitions below are the active v3.4.1 implementation.
+# definitions below are the active v3.4.2 implementation.
 # ==============================================================================
 
 PHP_CORE_SUFFIXES=(cli common fpm)
@@ -1665,7 +1694,7 @@ parse_php_selection() {
   [[ ${#PHP_SELECTED_VERSIONS[@]} -gt 0 ]] || { PHP_SELECTION_ERROR="Select at least one PHP version."; return 1; }
 }
 
-checkbox_menu() {
+checkbox_menu_legacy() {
   local title="$1" hint="$2"
   local -n labels_ref="$3"
   local -n states_ref="$4"
@@ -1717,6 +1746,99 @@ checkbox_menu() {
             states_ref[$index]=true
           fi
         done
+        ;;
+    esac
+  done
+}
+
+checkbox_menu() {
+  local title="$1" hint="$2"
+  local labels_name="$3" states_name="$4"
+  local -n labels_ref="$labels_name"
+  local -n states_ref="$states_name"
+  local cursor=0 key="" sequence="" index marker pointer selected_count=0
+  local total="${#labels_ref[@]}"
+
+  # Non-interactive shells, dumb terminals and redirected input use the
+  # number/range fallback so automated installs remain usable.
+  if [[ ! -t 0 || ! -t 1 || "${TERM:-dumb}" == "dumb" ]]; then
+    checkbox_menu_legacy "$title" "$hint" "$labels_name" "$states_name"
+    return
+  fi
+
+  echo
+  echo -e "${BOLD}${title}${NC}"
+  echo -e "${DIM}${hint}${NC}"
+  echo
+  printf '\033[s'
+
+  while true; do
+    # Restore the saved menu position and clear only the menu area.
+    printf '\033[u\033[J'
+    selected_count=0
+
+    for index in "${!labels_ref[@]}"; do
+      if [[ "${states_ref[$index]}" == true ]]; then
+        marker="${GREEN}[x]${NC}"
+        selected_count=$((selected_count + 1))
+      else
+        marker="${DIM}[ ]${NC}"
+      fi
+
+      if (( index == cursor )); then
+        pointer="${CYAN}${BOLD}>${NC}"
+        printf '  %b %2d) %b %b%s%b\n' \
+          "$pointer" "$((index + 1))" "$marker" "$BOLD" "${labels_ref[$index]}" "$NC"
+      else
+        pointer=" "
+        printf '  %s %2d) %b %s\n' \
+          "$pointer" "$((index + 1))" "$marker" "${labels_ref[$index]}"
+      fi
+    done
+
+    echo
+    echo -e "${DIM}↑/↓ move  •  Space toggle  •  A select all  •  N clear all${NC}"
+    printf "${DIM}Enter confirms the selection.${NC}  Selected: %d/%d" "$selected_count" "$total"
+
+    key=""
+    IFS= read -rsn1 key
+
+    # Arrow keys arrive as an escape byte followed by two bytes such as [A.
+    if [[ "$key" == $'\e' ]]; then
+      sequence=""
+      IFS= read -rsn2 -t 0.15 sequence || true
+      key+="$sequence"
+    fi
+
+    case "$key" in
+      $'\e[A'|k|K)
+        cursor=$(((cursor - 1 + total) % total))
+        ;;
+      $'\e[B'|j|J)
+        cursor=$(((cursor + 1) % total))
+        ;;
+      $'\e[H')
+        cursor=0
+        ;;
+      $'\e[F')
+        cursor=$((total - 1))
+        ;;
+      " ")
+        if [[ "${states_ref[$cursor]}" == true ]]; then
+          states_ref[$cursor]=false
+        else
+          states_ref[$cursor]=true
+        fi
+        ;;
+      a|A)
+        for index in "${!states_ref[@]}"; do states_ref[$index]=true; done
+        ;;
+      n|N)
+        for index in "${!states_ref[@]}"; do states_ref[$index]=false; done
+        ;;
+      "")
+        echo
+        return 0
         ;;
     esac
   done
