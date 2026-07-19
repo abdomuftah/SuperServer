@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.4.1 — Wizard-first checklists and optional-component fix
+
+- Moved all visible package updates and repository changes until after the final installation-plan approval.
+- Added pure Bash checkbox-style toggle menus for PHP versions, custom PHP extensions, and optional components.
+- Fixed the installation abort caused by a false optional Java condition under strict Bash error handling.
+- Replaced optional `test && command` chains with explicit `if` blocks throughout the active installer path.
+- Added non-interactive post-approval validation for selected Sury PHP releases.
+- Missing optional PHP extension packages are now reported and skipped without asking questions mid-installation.
+- Separated mandatory foundation packages from optional Composer, Python, and Java packages.
+- Improved final validation for installations where optional components are disabled.
+
 ## 3.4.0 — Multi-PHP Wizard and CrowdSec
 
 ### Added

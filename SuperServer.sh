@@ -8,7 +8,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-SUPERSERVER_VERSION="3.4.0"
+SUPERSERVER_VERSION="3.4.1"
 REPO_RAW="https://raw.githubusercontent.com/abdomuftah/SuperServer/main"
 INFO_DIR="/root/SNYT"
 INFO_FILE="$INFO_DIR/serverInfo.txt"
@@ -108,7 +108,7 @@ on_error() {
   local line="${1:-?}"
   local command="${2:-unknown}"
 
-  echo -e "\n${RED}${BOLD}Installation failed.${NC}" >&2
+  echo -e "\n${RED}${BOLD}SuperServer stopped because a command failed.${NC}" >&2
   echo -e "${RED}Line:${NC} $line" >&2
   echo -e "${RED}Command:${NC} $command" >&2
   echo -e "${RED}Exit code:${NC} $exit_code" >&2
@@ -1357,7 +1357,9 @@ write_final_info() {
 
 show_completion() {
   local scheme="http"
-  [[ "$SSL_ACTIVE" == true ]] && scheme="https"
+  if [[ "$SSL_ACTIVE" == true ]]; then
+    scheme="https"
+  fi
 
   echo
   echo -e "${MAGENTA}╭──────────────────────────────────────────────────────────────╮${NC}"
@@ -1376,6 +1378,7 @@ show_completion() {
   echo -e "${DIM}Keep $INFO_FILE private. It contains generated database credentials.${NC}"
   echo
 }
+
 
 main() {
   check_previous_installation
@@ -1430,9 +1433,9 @@ main() {
 
 
 # ==============================================================================
-# SuperServer v3.4.0 overrides
+# SuperServer v3.4.1 overrides
 # The original installer functions remain above for backwards readability; the
-# definitions below are the active v3.4 implementation.
+# definitions below are the active v3.4.1 implementation.
 # ==============================================================================
 
 PHP_CORE_SUFFIXES=(cli common fpm)
@@ -1482,7 +1485,11 @@ module_runtime_name() {
 }
 
 bool_text() {
-  [[ "$1" == true ]] && printf 'Yes' || printf 'No'
+  if [[ "$1" == true ]]; then
+    printf 'Yes'
+  else
+    printf 'No'
+  fi
 }
 
 choose_ssl_contact() {
@@ -1514,8 +1521,6 @@ choose_ssl_contact() {
       *) warn "Enter 1 or 2." ;;
     esac
   done
-  safe_write_info "SSL Registration Mode" "$SSL_MODE"
-  safe_write_info "SSL Email" "$email"
 }
 
 bootstrap_preflight() {
@@ -1562,6 +1567,30 @@ configure_repositories() {
   ok "Sury Multi-PHP repository is active for $VERSION_CODENAME."
 }
 
+validate_selected_php_versions() {
+  local version
+  local -a unavailable=()
+
+  section "Validating selected PHP releases"
+  discover_php_versions
+
+  for version in "${PHP_SELECTED_VERSIONS[@]}"; do
+    if ! php_candidate_is_available "$version"; then
+      unavailable+=("PHP $version: $(php_missing_core_packages "$version")")
+    fi
+  done
+
+  if [[ ${#unavailable[@]} -gt 0 ]]; then
+    echo
+    error "The Sury repository does not currently provide every required package for the selected PHP releases:"
+    printf '  - %s\n' "${unavailable[@]}"
+    fatal "No PHP packages were installed. Rerun the wizard and choose releases available for this operating system."
+  fi
+
+  ok "All selected PHP releases are available from the configured repository."
+}
+
+
 php_version_note() {
   case "$1" in
     8.1) printf 'legacy / end-of-life — explicit compatibility use only' ;;
@@ -1589,7 +1618,9 @@ parse_php_selection() {
   if [[ "$input" =~ ^(all|ALL|available|supported|\*)$ ]]; then
     PHP_SELECTED_VERSIONS=()
     for candidate in "${AVAILABLE_PHP_VERSIONS[@]}"; do
-      [[ "$candidate" == "8.1" ]] && continue
+      if [[ "$candidate" == "8.1" ]]; then
+        continue
+      fi
       PHP_SELECTED_VERSIONS+=("$candidate")
     done
     [[ ${#PHP_SELECTED_VERSIONS[@]} -gt 0 ]] || PHP_SELECTED_VERSIONS=("${AVAILABLE_PHP_VERSIONS[@]}")
@@ -1634,33 +1665,107 @@ parse_php_selection() {
   [[ ${#PHP_SELECTED_VERSIONS[@]} -gt 0 ]] || { PHP_SELECTION_ERROR="Select at least one PHP version."; return 1; }
 }
 
-choose_php_versions() {
-  local selection="" default_selection="" index version status recommended_version
-  section "Multi-PHP version selection"
-  discover_php_versions
-  recommended_version="${AVAILABLE_PHP_VERSIONS[$((${#AVAILABLE_PHP_VERSIONS[@]} - 1))]}"
-
-  echo "Sury packages are checked live for this operating-system codename."
-  echo
-  for index in "${!PHP_VERSION_CANDIDATES[@]}"; do
-    version="${PHP_VERSION_CANDIDATES[$index]}"
-    if php_candidate_is_available "$version"; then
-      status="${GREEN}AVAILABLE${NC}"
-    else
-      status="${RED}MISSING${NC}"
-    fi
-    printf '  %d) PHP %-3s  [%b]  %s' "$((index + 1))" "$version" "$status" "$(php_version_note "$version")"
-    [[ "$version" == "$recommended_version" ]] && printf ' %b' "${GREEN}(recommended)${NC}"
-    printf '\n'
-  done
-  echo
-  echo "Examples: 2 | 2,3,4 | 2-5 | all | all+legacy"
-  echo '"all" installs all available supported releases and excludes legacy PHP 8.1.'
+checkbox_menu() {
+  local title="$1" hint="$2"
+  local -n labels_ref="$3"
+  local -n states_ref="$4"
+  local input="" index marker
+  local -a toggles=()
 
   while true; do
-    read -r -p "PHP versions to install [all]: " selection
-    parse_php_selection "$selection" && break
-    warn "$PHP_SELECTION_ERROR"
+    echo
+    echo -e "${BOLD}${title}${NC}"
+    echo -e "${DIM}${hint}${NC}"
+    echo
+
+    for index in "${!labels_ref[@]}"; do
+      if [[ "${states_ref[$index]}" == true ]]; then
+        marker="${GREEN}[x]${NC}"
+      else
+        marker="${DIM}[ ]${NC}"
+      fi
+      printf '  %2d) %b %s\n' "$((index + 1))" "$marker" "${labels_ref[$index]}"
+    done
+
+    echo
+    echo -e "${DIM}Toggle with a number or range (example: 2,4-6).${NC}"
+    echo -e "${DIM}Commands: a = select all, n = clear all, d = done.${NC}"
+    read -r -p "Selection [d]: " input
+    input="${input:-d}"
+
+    case "${input,,}" in
+      d|done)
+        return 0
+        ;;
+      a|all)
+        for index in "${!states_ref[@]}"; do states_ref[$index]=true; done
+        ;;
+      n|none|clear)
+        for index in "${!states_ref[@]}"; do states_ref[$index]=false; done
+        ;;
+      *)
+        toggles=()
+        if ! parse_number_selection "$input" "${#labels_ref[@]}" toggles; then
+          warn "Invalid selection. Use numbers, ranges, a, n or d."
+          continue
+        fi
+        for index in "${toggles[@]}"; do
+          index=$((index - 1))
+          if [[ "${states_ref[$index]}" == true ]]; then
+            states_ref[$index]=false
+          else
+            states_ref[$index]=true
+          fi
+        done
+        ;;
+    esac
+  done
+}
+
+any_checkbox_selected() {
+  local -n states_ref="$1"
+  local state
+  for state in "${states_ref[@]}"; do
+    if [[ "$state" == true ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+choose_php_versions() {
+  local index version default_selection=""
+  local -a labels=() states=()
+
+  section "Multi-PHP version selection"
+  echo "Choose every PHP-FPM release that should be installed."
+  echo "Sury repository availability is verified automatically after you approve the plan."
+
+  for version in "${PHP_VERSION_CANDIDATES[@]}"; do
+    labels+=("PHP $version — $(php_version_note "$version")")
+    if [[ "$version" == "8.1" ]]; then
+      states+=(false)
+    else
+      states+=(true)
+    fi
+  done
+
+  while true; do
+    checkbox_menu \
+      "PHP versions" \
+      "Recommended defaults: PHP 8.2, 8.3, 8.4 and 8.5. PHP 8.1 is legacy." \
+      labels states
+    if any_checkbox_selected states; then
+      break
+    fi
+    warn "Select at least one PHP version."
+  done
+
+  PHP_SELECTED_VERSIONS=()
+  for index in "${!states[@]}"; do
+    if [[ "${states[$index]}" == true ]]; then
+      PHP_SELECTED_VERSIONS+=("${PHP_VERSION_CANDIDATES[$index]}")
+    fi
   done
 
   if [[ " ${PHP_SELECTED_VERSIONS[*]} " == *" 8.1 "* ]]; then
@@ -1671,21 +1776,25 @@ choose_php_versions() {
     php_version="${PHP_SELECTED_VERSIONS[0]}"
   else
     echo
-    echo "Default PHP for CLI, the primary website and phpMyAdmin:"
+    echo "Choose the default PHP version for CLI, the primary website and phpMyAdmin:"
     for index in "${!PHP_SELECTED_VERSIONS[@]}"; do
       printf '  %d) PHP %s\n' "$((index + 1))" "${PHP_SELECTED_VERSIONS[$index]}"
     done
     while true; do
       read -r -p "Default PHP [${#PHP_SELECTED_VERSIONS[@]}]: " default_selection
       default_selection="${default_selection:-${#PHP_SELECTED_VERSIONS[@]}}"
-      if [[ "$default_selection" =~ ^[0-9]+$ ]] && (( default_selection >= 1 && default_selection <= ${#PHP_SELECTED_VERSIONS[@]} )); then
+      if [[ "$default_selection" =~ ^[0-9]+$ ]] \
+        && (( default_selection >= 1 && default_selection <= ${#PHP_SELECTED_VERSIONS[@]} )); then
         php_version="${PHP_SELECTED_VERSIONS[$((default_selection - 1))]}"
         break
       fi
       warn "Choose a valid option."
     done
   fi
+
+  ok "Selected PHP versions: $(join_by ", " "${PHP_SELECTED_VERSIONS[@]}") (default: $php_version)."
 }
+
 
 parse_number_selection() {
   local input="$1" max="$2" token start end number
@@ -1713,149 +1822,174 @@ parse_number_selection() {
     fi
   done
   for ((number=1; number<=max; number++)); do
-    [[ -n "${selected[$number]:-}" ]] && output_ref+=("$number")
+    if [[ -n "${selected[$number]:-}" ]]; then
+      output_ref+=("$number")
+    fi
   done
   [[ ${#output_ref[@]} -gt 0 ]]
 }
 
+array_contains() {
+  local wanted="$1" item
+  shift
+  for item in "$@"; do
+    if [[ "$item" == "$wanted" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 choose_php_module_profile() {
-  local choice="" input="" index module
-  local -a selected_numbers=()
+  local choice="" index module
+  local -a labels=() states=()
+
   section "PHP extension profile"
   echo "  1) Essential — common production extensions"
-  echo "  2) All       — every extension in the SuperServer catalog"
-  echo "  3) Custom    — choose extensions from a numbered menu"
+  echo "  2) All       — every supported extension in the SuperServer catalog"
+  echo "  3) Custom    — toggle individual extensions with checkboxes"
   echo
+
   while true; do
     read -r -p "Profile [1]: " choice
     choice="${choice:-1}"
     case "$choice" in
-      1) PHP_MODULE_PROFILE="essential"; PHP_SELECTED_MODULES=("${PHP_ESSENTIAL_MODULES[@]}"); break ;;
-      2) PHP_MODULE_PROFILE="all"; PHP_SELECTED_MODULES=("${PHP_ALL_MODULES[@]}"); break ;;
+      1)
+        PHP_MODULE_PROFILE="essential"
+        PHP_SELECTED_MODULES=("${PHP_ESSENTIAL_MODULES[@]}")
+        break
+        ;;
+      2)
+        PHP_MODULE_PROFILE="all"
+        PHP_SELECTED_MODULES=("${PHP_ALL_MODULES[@]}")
+        break
+        ;;
       3)
         PHP_MODULE_PROFILE="custom"
-        echo
-        echo "Core packages CLI, Common and PHP-FPM are always installed."
-        echo "Common also provides ctype, fileinfo, iconv and tokenizer."
-        echo
-        for index in "${!PHP_ALL_MODULES[@]}"; do
-          module="${PHP_ALL_MODULES[$index]}"
-          printf '  %2d) %s\n' "$((index + 1))" "$(module_label "$module")"
+        labels=()
+        states=()
+        for module in "${PHP_ALL_MODULES[@]}"; do
+          labels+=("$(module_label "$module")")
+          if array_contains "$module" "${PHP_ESSENTIAL_MODULES[@]}"; then
+            states+=(true)
+          else
+            states+=(false)
+          fi
         done
-        echo
-        while true; do
-          read -r -p "Extensions (example 1-10,12,15 or all): " input
-          if [[ "$input" == "all" ]]; then
-            PHP_SELECTED_MODULES=("${PHP_ALL_MODULES[@]}")
-            break
+
+        checkbox_menu \
+          "Custom PHP extensions" \
+          "CLI, Common and PHP-FPM are always installed. Essential extensions start selected." \
+          labels states
+
+        PHP_SELECTED_MODULES=()
+        for index in "${!states[@]}"; do
+          if [[ "${states[$index]}" == true ]]; then
+            PHP_SELECTED_MODULES+=("${PHP_ALL_MODULES[$index]}")
           fi
-          if parse_number_selection "$input" "${#PHP_ALL_MODULES[@]}" selected_numbers; then
-            PHP_SELECTED_MODULES=()
-            for index in "${selected_numbers[@]}"; do
-              PHP_SELECTED_MODULES+=("${PHP_ALL_MODULES[$((index - 1))]}")
-            done
-            break
-          fi
-          warn "Invalid extension selection."
         done
         break
         ;;
-      *) warn "Enter 1, 2 or 3." ;;
+      *)
+        warn "Enter 1, 2 or 3."
+        ;;
     esac
   done
 
   echo
   info "PHP extension profile: $PHP_MODULE_PROFILE"
-  printf '  %s\n' "$(join_by ", " "${PHP_SELECTED_MODULES[@]}")"
+  if [[ ${#PHP_SELECTED_MODULES[@]} -gt 0 ]]; then
+    printf '  %s\n' "$(join_by ", " "${PHP_SELECTED_MODULES[@]}")"
+  else
+    printf '  Core packages only: CLI, Common and PHP-FPM\n'
+  fi
 }
+
 
 validate_php_module_plan() {
   local version module package
   local -a missing=()
+
   for version in "${PHP_SELECTED_VERSIONS[@]}"; do
     for module in "${PHP_SELECTED_MODULES[@]}"; do
       package="php${version}-${module}"
       if package_has_candidate "$package"; then
         continue
       fi
-      [[ "$module" == "opcache" ]] && continue
+      if [[ "$module" == "opcache" ]]; then
+        continue
+      fi
       missing+=("$package")
     done
   done
 
   if [[ ${#missing[@]} -gt 0 ]]; then
     echo
-    warn "The following selected extension packages are not published and will be skipped:"
+    warn "These optional PHP extension packages are not published and will be skipped automatically:"
     printf '  - %s\n' "${missing[@]}"
-    confirm "Continue with the remaining available extensions?" "Y" || return 1
   else
-    ok "Every selected PHP extension package is available for the selected PHP versions."
+    ok "Every requested PHP extension package is available for the selected PHP versions."
   fi
 }
+
 
 choose_phpmyadmin() {
   local answer=""
   echo
   read -r -p "Install phpMyAdmin at /phpmyadmin/? [Y/n]: " answer
   answer="${answer:-Y}"
-  [[ "$answer" =~ ^[Yy]$ ]] && INSTALL_PHPMYADMIN=true || INSTALL_PHPMYADMIN=false
+  if [[ "$answer" =~ ^[Yy]$ ]]; then
+    INSTALL_PHPMYADMIN=true
+  else
+    INSTALL_PHPMYADMIN=false
+  fi
 }
 
+
 choose_components() {
-  local input="" index
-  local -a chosen=()
+  local index
+  local -a labels=(
+    "MariaDB server"
+    "Redis server"
+    "Composer"
+    "Node.js and npm"
+    "PM2 process manager"
+    "Python development tools"
+    "Java JDK"
+    "Docker Engine and Compose"
+    "Automatic security updates"
+    "SNYT Fastfetch and MOTD"
+  )
+  local -a states=(true true true true true true false false true true)
+
   section "Optional components"
-  cat <<'EOF'
-  1) MariaDB server
-  2) Redis server
-  3) Composer
-  4) Node.js and npm
-  5) PM2 process manager
-  6) Python development tools
-  7) Java JDK
-  8) Docker Engine and Compose
-  9) Automatic security updates
- 10) SNYT Fastfetch and MOTD
+  checkbox_menu \
+    "Component selection" \
+    "Recommended components start selected. Toggle anything you do not need, then choose done." \
+    labels states
 
-Presets:
-  recommended = 1,2,3,4,5,6,9,10
-  all         = every component
-  none        = no optional component
-EOF
-  while true; do
-    read -r -p "Components [recommended]: " input
-    input="${input:-recommended}"
-    case "$input" in
-      recommended) chosen=(1 2 3 4 5 6 9 10); break ;;
-      all) chosen=(1 2 3 4 5 6 7 8 9 10); break ;;
-      none) chosen=(); break ;;
-      *) parse_number_selection "$input" 10 chosen && break; warn "Invalid component selection." ;;
-    esac
-  done
+  INSTALL_MARIADB="${states[0]}"
+  INSTALL_REDIS="${states[1]}"
+  INSTALL_COMPOSER="${states[2]}"
+  INSTALL_NODEJS="${states[3]}"
+  INSTALL_PM2="${states[4]}"
+  INSTALL_PYTHON="${states[5]}"
+  INSTALL_JAVA="${states[6]}"
+  INSTALL_DOCKER="${states[7]}"
+  INSTALL_UNATTENDED="${states[8]}"
+  INSTALL_MOTD="${states[9]}"
 
-  INSTALL_MARIADB=false; INSTALL_REDIS=false; INSTALL_COMPOSER=false
-  INSTALL_NODEJS=false; INSTALL_PM2=false; INSTALL_PYTHON=false
-  INSTALL_JAVA=false; INSTALL_DOCKER=false; INSTALL_UNATTENDED=false; INSTALL_MOTD=false
-  for index in "${chosen[@]}"; do
-    case "$index" in
-      1) INSTALL_MARIADB=true ;;
-      2) INSTALL_REDIS=true ;;
-      3) INSTALL_COMPOSER=true ;;
-      4) INSTALL_NODEJS=true ;;
-      5) INSTALL_PM2=true; INSTALL_NODEJS=true ;;
-      6) INSTALL_PYTHON=true ;;
-      7) INSTALL_JAVA=true ;;
-      8) INSTALL_DOCKER=true ;;
-      9) INSTALL_UNATTENDED=true ;;
-      10) INSTALL_MOTD=true ;;
-    esac
-  done
+  if [[ "$INSTALL_PM2" == true && "$INSTALL_NODEJS" != true ]]; then
+    info "PM2 requires Node.js; Node.js was enabled automatically."
+    INSTALL_NODEJS=true
+  fi
 
   if [[ "$INSTALL_PHPMYADMIN" == true && "$INSTALL_MARIADB" != true ]]; then
     info "phpMyAdmin requires MariaDB; MariaDB was enabled automatically."
     INSTALL_MARIADB=true
   fi
 }
+
 
 choose_security() {
   local choice=""
@@ -1917,12 +2051,17 @@ EOF
 }
 
 show_installation_summary() {
+  local ssl_display="No email"
+  if [[ "$SSL_MODE" == "email" ]]; then
+    ssl_display="$email"
+  fi
+
   echo
   echo -e "${MAGENTA}╭────────────────────────────────────────────────────────────────────╮${NC}"
   echo -e "${MAGENTA}│${NC}  ${BOLD}SNYT SuperServer installation plan${NC}                              ${MAGENTA}│${NC}"
   echo -e "${MAGENTA}├────────────────────────────────────────────────────────────────────┤${NC}"
   printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "Domain          : $domain"
-  printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "SSL account     : $([[ $SSL_MODE == email ]] && echo "$email" || echo "No email")"
+  printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "SSL account     : $ssl_display"
   printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "Web server      : ${web_server^}"
   printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "PHP versions    : $(join_by ", " "${PHP_SELECTED_VERSIONS[@]}")"
   printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "Default PHP     : $php_version"
@@ -1941,6 +2080,7 @@ show_installation_summary() {
   save_install_plan
 }
 
+
 install_base_packages() {
   section "Updating the operating system and installing the foundation"
   export DEBIAN_FRONTEND=noninteractive
@@ -1950,11 +2090,24 @@ install_base_packages() {
   apt-get install -y \
     ca-certificates curl wget gnupg lsb-release software-properties-common \
     openssl jq screen nano git zip unzip ufw dialog gcc g++ make
-
-  [[ "$INSTALL_COMPOSER" == true ]] && apt-get install -y composer
-  [[ "$INSTALL_PYTHON" == true ]] && apt-get install -y python3 python3-dev python3-pip
-  [[ "$INSTALL_JAVA" == true ]] && apt-get install -y default-jdk
 }
+
+install_optional_system_tools() {
+  section "Installing selected system tools"
+
+  if [[ "$INSTALL_COMPOSER" == true ]]; then
+    apt-get install -y composer
+  fi
+
+  if [[ "$INSTALL_PYTHON" == true ]]; then
+    apt-get install -y python3 python3-dev python3-pip
+  fi
+
+  if [[ "$INSTALL_JAVA" == true ]]; then
+    apt-get install -y default-jdk
+  fi
+}
+
 
 install_single_php_version() {
   local version="$1" suffix package runtime
@@ -2242,14 +2395,19 @@ configure_ssl() {
     certbot renew --dry-run || warn "Certbot renewal dry-run failed."
     safe_write_info "SSL Status" "Active with automatic renewal"
     safe_write_info "Primary URL" "https://$domain"
-    [[ "$INSTALL_PHPMYADMIN" == true ]] && safe_write_info "phpMyAdmin URL" "https://$domain/phpmyadmin/"
+    if [[ "$INSTALL_PHPMYADMIN" == true ]]; then
+      safe_write_info "phpMyAdmin URL" "https://$domain/phpmyadmin/"
+    fi
   else
     warn "SSL issuance is pending; installation continues over HTTP."
     safe_write_info "SSL Status" "Pending"
     safe_write_info "Primary URL" "http://$domain"
-    [[ "$INSTALL_PHPMYADMIN" == true ]] && safe_write_info "phpMyAdmin URL" "http://$domain/phpmyadmin/"
+    if [[ "$INSTALL_PHPMYADMIN" == true ]]; then
+      safe_write_info "phpMyAdmin URL" "http://$domain/phpmyadmin/"
+    fi
   fi
 }
+
 
 configure_mariadb() {
   [[ "$INSTALL_MARIADB" == true ]] || { info "MariaDB was not selected."; return 0; }
@@ -2275,20 +2433,51 @@ SQL
 final_validation() {
   section "Running final validation"
   local version
+
   configure_php_alternatives
-  for version in "${PHP_SELECTED_VERSIONS[@]}"; do verify_php_runtime "$version"; done
-  [[ "$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')" == "$php_version" ]] || fatal "Default PHP CLI mismatch."
-  if [[ "$web_server" == "apache" ]]; then apache2ctl configtest; systemctl is-active --quiet apache2; else nginx -t; systemctl is-active --quiet nginx; fi
+  for version in "${PHP_SELECTED_VERSIONS[@]}"; do
+    verify_php_runtime "$version"
+  done
+
+  [[ "$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')" == "$php_version" ]] \
+    || fatal "Default PHP CLI mismatch."
+
+  if [[ "$web_server" == "apache" ]]; then
+    apache2ctl configtest
+    systemctl is-active --quiet apache2
+  else
+    nginx -t
+    systemctl is-active --quiet nginx
+  fi
+
   verify_php_through_web_server
-  [[ "$INSTALL_MARIADB" == true ]] && systemctl is-active --quiet mariadb
-  [[ "$INSTALL_REDIS" == true ]] && redis-cli ping | grep -q '^PONG$'
-  [[ "$INSTALL_NODEJS" == true ]] && command -v node >/dev/null && command -v npm >/dev/null
-  [[ "$INSTALL_PYTHON" == true ]] && command -v python3 >/dev/null
-  [[ "$INSTALL_COMPOSER" == true ]] && command -v composer >/dev/null
-  [[ "$INSTALL_DOCKER" == true ]] && systemctl is-active --quiet docker
-  [[ "$SECURITY_MODE" != "none" ]] && systemctl is-active --quiet crowdsec
+
+  if [[ "$INSTALL_MARIADB" == true ]]; then
+    systemctl is-active --quiet mariadb
+  fi
+  if [[ "$INSTALL_REDIS" == true ]]; then
+    redis-cli ping | grep -q '^PONG$'
+  fi
+  if [[ "$INSTALL_NODEJS" == true ]]; then
+    command -v node >/dev/null
+    command -v npm >/dev/null
+  fi
+  if [[ "$INSTALL_PYTHON" == true ]]; then
+    command -v python3 >/dev/null
+  fi
+  if [[ "$INSTALL_COMPOSER" == true ]]; then
+    command -v composer >/dev/null
+  fi
+  if [[ "$INSTALL_DOCKER" == true ]]; then
+    systemctl is-active --quiet docker
+  fi
+  if [[ "$SECURITY_MODE" != "none" ]]; then
+    systemctl is-active --quiet crowdsec
+  fi
+
   ok "All selected services and PHP-FPM versions passed validation."
 }
+
 
 write_final_info() {
   safe_write_info "Installation Status" "Complete"
@@ -2322,23 +2511,22 @@ main() {
   detect_ssh_port
   print_banner
 
-  echo "A small repository preflight runs first so the wizard can show real PHP choices."
-  echo "No service stack is installed until you approve the final plan."
+  echo -e "${GREEN}${BOLD}Configuration wizard${NC}"
+  echo "No package updates, repository changes or service installations will run"
+  echo "until every choice is collected and you approve the final plan."
   echo
-  bootstrap_preflight
-  configure_repositories
 
   while true; do
     domain="$(prompt_nonempty 'Primary web domain (example.com): ')"
     validate_domain "$domain" && break
     warn "Invalid domain format."
   done
+
   choose_ssl_contact
   choose_web_server
   check_web_server_conflict
   choose_php_versions
   choose_php_module_profile
-  validate_php_module_plan || fatal "PHP extension selection cancelled."
   choose_phpmyadmin
   choose_components
   choose_security
@@ -2346,10 +2534,14 @@ main() {
 
   # No interactive prompts are allowed after this point.
   install_base_packages
+  configure_repositories
+  validate_selected_php_versions
+  validate_php_module_plan
   install_web_server
   install_certbot
   configure_mariadb
   install_php_versions
+  install_optional_system_tools
   create_primary_website
   configure_phpmyadmin
   install_python_tools
@@ -2358,8 +2550,14 @@ main() {
   install_docker
   configure_firewall
   configure_crowdsec
-  [[ "$INSTALL_UNATTENDED" == true ]] && configure_unattended_upgrades
-  [[ "$INSTALL_MOTD" == true ]] && install_fastfetch_motd
+
+  if [[ "$INSTALL_UNATTENDED" == true ]]; then
+    configure_unattended_upgrades
+  fi
+  if [[ "$INSTALL_MOTD" == true ]]; then
+    install_fastfetch_motd
+  fi
+
   configure_ssl
   install_domain_helper
   install_management_helper
@@ -2367,5 +2565,6 @@ main() {
   write_final_info
   show_completion
 }
+
 
 main "$@"
