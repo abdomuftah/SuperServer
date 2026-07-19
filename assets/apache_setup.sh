@@ -35,7 +35,10 @@ endpoint_exists(){
   else return 1; fi
 }
 ensure_php_fpm(){
-  local version="$1" endpoint attempt unit="php${version}-fpm.service"
+  local version="$1"
+  local endpoint
+  local attempt
+  local unit="php${version}-fpm.service"
   [[ -x "/usr/sbin/php-fpm${version}" ]] || error "PHP-FPM $version is not installed."
   install -d -o www-data -g www-data -m 0755 /run/php
   "/usr/sbin/php-fpm${version}" -tt >/dev/null 2>&1 || error "PHP-FPM $version configuration is invalid."

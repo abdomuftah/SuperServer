@@ -45,5 +45,5 @@
     <rect x="774" y="320" width="199" height="48" rx="15" fill="#ffffff" fill-opacity=".055" stroke="#ffffff" stroke-opacity=".14"/>
     <text x="805" y="351" fill="#dce7ff">Let’s Encrypt</text>
   </g>
-  <text x="1180" y="365" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="800" fill="#70eda8">v3.5.0</text>
+  <text x="1180" y="365" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="800" fill="#70eda8">v3.5.1</text>
 </svg>

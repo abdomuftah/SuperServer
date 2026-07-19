@@ -75,6 +75,45 @@ if "APPSEC_URL=http://127.0.0.1:7422" not in main:
 if 'conf_dir/99-snyt.ini' not in main:
     errors.append("PHP configuration is not installed as a conf.d fragment")
 
+
+# Under `set -u`, Bash expands every assignment in one `local` command before
+# assigning any of them. A declaration such as
+# `local version="$1" unit="php${version}-fpm.service"` therefore crashes.
+def same_command_local_dependencies(text: str) -> list[tuple[int, str, str]]:
+    findings: list[tuple[int, str, str]] = []
+    for line_number, line in enumerate(text.splitlines(), 1):
+        match = re.search(r"\blocal\s+(.+)", line)
+        if not match or "$" not in match.group(1):
+            continue
+        try:
+            import shlex
+            words = shlex.split(match.group(1), posix=True)
+        except ValueError:
+            continue
+        assigned: list[str] = []
+        for word in words:
+            if "=" not in word:
+                continue
+            left, right = word.split("=", 1)
+            left = left.lstrip("-aAnirx")
+            for previous in assigned:
+                if re.search(rf"\$\{{?{re.escape(previous)}(?:\}}|\b)", right):
+                    findings.append((line_number, previous, line.strip()))
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", left):
+                assigned.append(left)
+    return findings
+
+for path in SHELL_FILES:
+    text = path.read_text(encoding="utf-8")
+    for line_number, variable, declaration in same_command_local_dependencies(text):
+        errors.append(
+            f"{path.relative_to(ROOT)}:{line_number} references local variable "
+            f"{variable!r} before the local command assigns it: {declaration}"
+        )
+
+if "COMPOSER_ALLOW_SUPERUSER=1" not in main or "COMPOSER_NO_INTERACTION=1" not in main:
+    errors.append("Composer can prompt after final plan approval")
+
 # Verify local README assets.
 readme = (ROOT / "README.md").read_text(encoding="utf-8")
 for rel in re.findall(r'(?:src=|]\()"?(\.\/assets\/readme\/[^)"\s>]+)', readme):

@@ -8,7 +8,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-SUPERSERVER_VERSION="3.5.0"
+SUPERSERVER_VERSION="3.5.1"
 REPO_RAW="https://raw.githubusercontent.com/abdomuftah/SuperServer/main"
 INFO_DIR="/root/SNYT"
 INFO_FILE="$INFO_DIR/serverInfo.txt"
@@ -606,7 +606,10 @@ php_fpm_apache_handler() {
 }
 
 ensure_php_fpm_ready() {
-  local version="$1" unit="php${version}-fpm.service" endpoint="" attempt
+  local version="$1"
+  local unit="php${version}-fpm.service"
+  local endpoint=""
+  local attempt
   local fpm_bin="/usr/sbin/php-fpm${version}"
 
   [[ -x "$fpm_bin" ]] || fatal "PHP-FPM binary is missing: $fpm_bin"
@@ -1647,6 +1650,12 @@ show_installation_summary() {
 install_base_packages() {
   section "Updating the operating system and installing the foundation"
   export DEBIAN_FRONTEND=noninteractive
+  export APT_LISTCHANGES_FRONTEND=none
+  export NEEDRESTART_MODE=a
+  export UCF_FORCE_CONFFOLD=1
+  export COMPOSER_ALLOW_SUPERUSER=1
+  export COMPOSER_NO_INTERACTION=1
+  export npm_config_yes=true
   apt-get update
   apt-get dist-upgrade -y
   apt-get autoremove -y
@@ -1667,6 +1676,12 @@ install_composer() {
   section "Installing Composer"
   local installer=/tmp/composer-setup.php expected actual
 
+  # Composer prompts when executed as root unless this is explicitly allowed.
+  # The user already selected Composer in the opening wizard, so no question
+  # is permitted after the final installation-plan confirmation.
+  export COMPOSER_ALLOW_SUPERUSER=1
+  export COMPOSER_NO_INTERACTION=1
+
   expected="$(curl -fsSL https://composer.github.io/installer.sig 2>/dev/null || true)"
   if [[ -n "$expected" ]] && curl -fsSL https://getcomposer.org/installer -o "$installer"; then
     actual="$(php -r "echo hash_file('sha384', '$installer');")"
@@ -1674,7 +1689,7 @@ install_composer() {
         && php "$installer" --quiet --install-dir=/usr/local/bin --filename=composer; then
       rm -f "$installer"
       record_provider "Composer" "official verified installer"
-      composer --version >/dev/null
+      composer --no-interaction --version >/dev/null
       return 0
     fi
   fi
@@ -1682,7 +1697,7 @@ install_composer() {
   warn "Composer's official installer failed; trying the distribution package."
   apt-get install -y composer
   record_provider "Composer" "distribution APT package"
-  composer --version >/dev/null || fatal "Composer installation failed."
+  composer --no-interaction --version >/dev/null || fatal "Composer installation failed."
 }
 
 install_single_php_version() {
@@ -1726,7 +1741,10 @@ install_single_php_version() {
 }
 
 verify_php_runtime() {
-  local version="${1:-$php_version}" cli_bin="/usr/bin/php${version}" cli_version endpoint
+  local version="${1:-$php_version}"
+  local cli_bin="/usr/bin/php${version}"
+  local cli_version
+  local endpoint
   [[ -x "$cli_bin" ]] || fatal "Missing PHP CLI binary: $cli_bin"
   cli_version="$($cli_bin -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"
   [[ "$cli_version" == "$version" ]] || fatal "PHP CLI mismatch for $version."

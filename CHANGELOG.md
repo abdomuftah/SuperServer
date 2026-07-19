@@ -1,6 +1,16 @@
 # Changelog
 
-## 3.5.0 — Clean core and resilient package sources
+## 3.5.1 — Fully non-interactive execution and nounset audit
+
+- Suppressed Composer's root-user confirmation after the installation plan is approved by setting `COMPOSER_ALLOW_SUPERUSER=1` and non-interactive mode.
+- Fixed an unbound-variable failure in `ensure_php_fpm_ready` caused by referencing `version` inside the same `local` declaration that initialized it.
+- Fixed the same latent nounset bug in `verify_php_runtime` before it could fail during later validation.
+- Fixed equivalent same-declaration bugs in both Apache and Nginx `super-sdomain` helpers.
+- Added non-interactive environment settings for APT list changes, needrestart, UCF, Composer and npm after final confirmation.
+- Extended static project validation to reject local declarations that reference a variable assigned earlier in the same command.
+- Added validation that Composer root/non-interactive protection remains present.
+
+## 3.5.1 — Clean core and resilient package sources
 
 - Removed the duplicated legacy function implementations that had accumulated in the single-file installer.
 - Fixed the PHP web-runtime failure caused by assuming `/run/php/phpX.Y-fpm.sock` always exists.

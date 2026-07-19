@@ -18,7 +18,7 @@
     <rect x="100" y="205" width="720" height="284" rx="6" fill="#0e1424" stroke="#cf4b9b"/>
     <path d="M100 252H820" stroke="#cf4b9b"/>
     <text x="126" y="236" font-size="17" font-weight="800" fill="#70eda8">Deploy • Secure • Validate</text>
-    <text x="126" y="286" font-size="16" fill="#96a1bd">Version :</text><text x="238" y="286" font-size="16" font-weight="800" fill="#f4f7ff">3.5.0</text>
+    <text x="126" y="286" font-size="16" fill="#96a1bd">Version :</text><text x="238" y="286" font-size="16" font-weight="800" fill="#f4f7ff">3.5.1</text>
     <text x="126" y="318" font-size="16" fill="#96a1bd">System  :</text><text x="238" y="318" font-size="16" fill="#70eda8">Ubuntu 26.04 LTS (resolute / amd64)</text>
     <text x="126" y="350" font-size="16" fill="#96a1bd">SSH     :</text><text x="238" y="350" font-size="16" fill="#70eda8">port 22</text>
     <text x="126" y="394" font-size="15" fill="#70eda8">This guided wizard collects every choice before installation:</text>
