@@ -114,6 +114,21 @@ for path in SHELL_FILES:
 if "COMPOSER_ALLOW_SUPERUSER=1" not in main or "COMPOSER_NO_INTERACTION=1" not in main:
     errors.append("Composer can prompt after final plan approval")
 
+# CrowdSec's firewall-bouncer package can fail its post-install stage on Ubuntu
+# 26.04 while leaving an API-key placeholder.  The installer must catch the
+# package error, register its own bouncer, and use the supported local override.
+for required_text, message in [
+    ("install_crowdsec_firewall_bouncer", "CrowdSec firewall-bouncer recovery function is missing"),
+    ('cscli bouncers add "$bouncer_name" -o raw', 'CrowdSec bouncer key is not generated explicitly'),
+    ('bouncer_override="${bouncer_config}.local"', 'CrowdSec bouncer does not use a persistent local override'),
+    ("http://127.0.0.1:8080/health", "CrowdSec LAPI health is not checked before bouncer registration"),
+]:
+    if required_text not in main:
+        errors.append(message)
+
+if re.search(r'(?m)^\s*apt-get install -y "\$bouncer_package"\s*$', main):
+    errors.append("CrowdSec bouncer package install is not protected by the recovery path")
+
 # Verify local README assets.
 readme = (ROOT / "README.md").read_text(encoding="utf-8")
 for rel in re.findall(r'(?:src=|]\()"?(\.\/assets\/readme\/[^)"\s>]+)', readme):

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/abdomuftah/SuperServer/releases"><img alt="Release v3.5.1" src="./assets/readme/badge-release.svg" height="28"></a>
+  <a href="https://github.com/abdomuftah/SuperServer/releases"><img alt="Release v3.5.2" src="./assets/readme/badge-release.svg" height="28"></a>
   <a href="https://github.com/abdomuftah/SuperServer/actions/workflows/validate.yml"><img alt="Validation passing" src="./assets/readme/badge-validation.svg" height="28"></a>
   <img alt="Shell Bash" src="./assets/readme/badge-shell.svg" height="28">
   <img alt="Ubuntu 22.04, 24.04 and 26.04" src="./assets/readme/badge-ubuntu.svg" height="28">
@@ -32,6 +32,9 @@
 
 > [!NOTE]
 > In non-interactive shells or terminals without cursor controls, SuperServer automatically falls back to number and range input.
+
+> [!IMPORTANT]
+> **Ubuntu 26.04 CrowdSec compatibility:** SuperServer detects and repairs the known firewall-bouncer package issue that can leave an `${API_KEY}` placeholder during post-installation. It registers a dedicated local bouncer key, writes the supported `.yaml.local` override, completes dpkg configuration, and validates active enforcement.
 
 ## 🚀 Quick install
 

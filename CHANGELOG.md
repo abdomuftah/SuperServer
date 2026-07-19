@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.5.2 — CrowdSec firewall-bouncer recovery on Ubuntu 26.04
+
+- Worked around the upstream CrowdSec firewall-bouncer 0.0.34 post-installation bug seen on Ubuntu 26.04.
+- Catch the package post-install failure instead of terminating SuperServer immediately.
+- Wait for the CrowdSec Local API health endpoint before registering the remediation component.
+- Generate a dedicated `snyt-firewall-bouncer` key with `cscli bouncers add -o raw`.
+- Store `api_url`, `api_key`, and firewall mode in the officially supported `.yaml.local` override.
+- Restart and validate the bouncer before completing the interrupted dpkg configuration.
+- Added service, journal, and bouncer-log diagnostics if remediation still cannot start.
+- Added static validation that the package install is wrapped by the recovery function and that placeholder API keys are not trusted.
+
 ## 3.5.1 — Fully non-interactive execution and nounset audit
 
 - Suppressed Composer's root-user confirmation after the installation plan is approved by setting `COMPOSER_ALLOW_SUPERUSER=1` and non-interactive mode.
@@ -10,7 +21,7 @@
 - Extended static project validation to reject local declarations that reference a variable assigned earlier in the same command.
 - Added validation that Composer root/non-interactive protection remains present.
 
-## 3.5.1 — Clean core and resilient package sources
+## 3.5.0 — Clean core and resilient package sources
 
 - Removed the duplicated legacy function implementations that had accumulated in the single-file installer.
 - Fixed the PHP web-runtime failure caused by assuming `/run/php/phpX.Y-fpm.sock` always exists.

@@ -8,7 +8,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-SUPERSERVER_VERSION="3.5.1"
+SUPERSERVER_VERSION="3.5.2"
 REPO_RAW="https://raw.githubusercontent.com/abdomuftah/SuperServer/main"
 INFO_DIR="/root/SNYT"
 INFO_FILE="$INFO_DIR/serverInfo.txt"
@@ -1985,6 +1985,86 @@ EOF
   docker info >/dev/null || fatal "Docker daemon validation failed."
 }
 
+install_crowdsec_firewall_bouncer() {
+  local bouncer_package="$1"
+  local bouncer_mode="$2"
+  local bouncer_name="snyt-firewall-bouncer"
+  local bouncer_config="/etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml"
+  local bouncer_override="${bouncer_config}.local"
+  local api_key=""
+  local package_install_failed=false
+  local attempt
+
+  # CrowdSec firewall-bouncer 0.0.34 has an upstream packaging bug on
+  # Ubuntu 26.04: the post-install script can leave ${API_KEY} in the YAML,
+  # then fail while starting the service.  Keep APT non-interactive, catch
+  # that failure, and complete the documented bouncer registration manually.
+  if ! apt-get install -y "$bouncer_package"; then
+    package_install_failed=true
+    warn "$bouncer_package did not finish its post-install step; attempting the CrowdSec credential recovery path."
+  fi
+
+  command -v crowdsec-firewall-bouncer >/dev/null 2>&1 \
+    || fatal "The CrowdSec firewall bouncer binary was not installed."
+  [[ -f "$bouncer_config" ]] \
+    || fatal "The CrowdSec firewall bouncer configuration file was not created."
+
+  systemctl unmask crowdsec.service >/dev/null 2>&1 || true
+  systemctl enable --now crowdsec.service
+  for attempt in {1..20}; do
+    if curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+  curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1 \
+    || fatal "CrowdSec Local API is not healthy on 127.0.0.1:8080."
+
+  cscli bouncers delete "$bouncer_name" --ignore-missing >/dev/null 2>&1 || true
+  api_key="$(cscli bouncers add "$bouncer_name" -o raw | tr -d '\r\n')"
+  [[ -n "$api_key" ]] || fatal "CrowdSec did not generate a firewall-bouncer API key."
+
+  install -d -m 0750 /etc/crowdsec/bouncers
+  cat > "$bouncer_override" <<EOF
+api_url: http://127.0.0.1:8080/
+api_key: $api_key
+mode: $bouncer_mode
+EOF
+  chmod 0600 "$bouncer_override"
+
+  systemctl daemon-reload
+  systemctl unmask crowdsec-firewall-bouncer.service >/dev/null 2>&1 || true
+  systemctl enable crowdsec-firewall-bouncer.service >/dev/null 2>&1 || true
+
+  if ! systemctl restart crowdsec-firewall-bouncer.service; then
+    warn "CrowdSec firewall bouncer failed after credential repair."
+    systemctl status crowdsec-firewall-bouncer.service --no-pager -l || true
+    journalctl -u crowdsec-firewall-bouncer.service -n 80 --no-pager || true
+    tail -n 80 /var/log/crowdsec-firewall-bouncer.log 2>/dev/null || true
+    fatal "CrowdSec firewall bouncer could not be started."
+  fi
+
+  # Finish any package configuration that was interrupted when the package
+  # initially tried to start with a placeholder API key.  The .yaml.local file
+  # is an officially supported override and remains safe across package updates.
+  if [[ "$package_install_failed" == true ]] \
+      || ! dpkg-query -W -f='${db:Status-Abbrev}' "$bouncer_package" 2>/dev/null | grep -q '^ii '; then
+    if ! DEBIAN_FRONTEND=noninteractive dpkg --configure "$bouncer_package"; then
+      warn "The package post-install script still returned an error; retrying dependency repair with the working local configuration."
+      DEBIAN_FRONTEND=noninteractive apt-get -f install -y \
+        || fatal "APT could not finish configuring $bouncer_package."
+    fi
+  fi
+
+  systemctl restart crowdsec-firewall-bouncer.service
+  systemctl is-active --quiet crowdsec-firewall-bouncer.service \
+    || fatal "CrowdSec firewall bouncer is not active after package repair."
+
+  cscli bouncers list | grep -Fq "$bouncer_name" \
+    || fatal "The SNYT CrowdSec firewall bouncer is not registered in LAPI."
+  ok "CrowdSec firewall bouncer is active in $bouncer_mode mode."
+}
+
 configure_crowdsec() {
   [[ "$SECURITY_MODE" != "none" ]] || { info "CrowdSec was not selected."; return 0; }
   section "Installing CrowdSec protection"
@@ -2037,15 +2117,14 @@ EOF
   systemctl restart crowdsec
 
   local bouncer_package="crowdsec-firewall-bouncer-iptables"
+  local bouncer_mode="iptables"
   if package_has_candidate crowdsec-firewall-bouncer-nftables \
       && command -v iptables >/dev/null 2>&1 \
       && iptables -V 2>/dev/null | grep -qi nf_tables; then
     bouncer_package="crowdsec-firewall-bouncer-nftables"
+    bouncer_mode="nftables"
   fi
-  apt-get install -y "$bouncer_package"
-  systemctl enable --now crowdsec-firewall-bouncer.service 2>/dev/null || true
-  systemctl is-active --quiet crowdsec-firewall-bouncer.service \
-    || fatal "CrowdSec firewall bouncer is not active."
+  install_crowdsec_firewall_bouncer "$bouncer_package" "$bouncer_mode"
 
   if [[ "$SECURITY_MODE" == "crowdsec-appsec" ]]; then
     # AppSec packages vary by repository generation. Only enable the mode when
