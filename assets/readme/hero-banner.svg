@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="420" viewBox="0 0 1280 420" role="img" aria-label="SNYT SuperServer">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#090d18"/>
+      <stop offset="0.55" stop-color="#11182b"/>
+      <stop offset="1" stop-color="#0b1020"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4de2d1"/>
+      <stop offset="0.45" stop-color="#5da9ff"/>
+      <stop offset="1" stop-color="#a985ff"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="0" cy="0" r="1" gradientTransform="translate(160 10) rotate(45) scale(500 360)">
+      <stop stop-color="#5da9ff" stop-opacity=".34"/>
+      <stop offset="1" stop-color="#5da9ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowB" cx="0" cy="0" r="1" gradientTransform="translate(1170 30) rotate(135) scale(460 340)">
+      <stop stop-color="#a985ff" stop-opacity=".30"/>
+      <stop offset="1" stop-color="#a985ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1280" height="420" rx="34" fill="url(#bg)"/>
+  <rect width="1280" height="420" rx="34" fill="url(#glowA)"/>
+  <rect width="1280" height="420" rx="34" fill="url(#glowB)"/>
+  <g opacity=".12" stroke="#fff">
+    <path d="M0 70H1280M0 140H1280M0 210H1280M0 280H1280M0 350H1280"/>
+    <path d="M80 0V420M160 0V420M240 0V420M320 0V420M400 0V420M480 0V420M560 0V420M640 0V420M720 0V420M800 0V420M880 0V420M960 0V420M1040 0V420M1120 0V420M1200 0V420"/>
+  </g>
+  <g>
+    <rect x="64" y="62" width="88" height="88" rx="25" fill="url(#accent)"/>
+    <path d="M88 91h40M88 107h29M88 123h40" stroke="#fff" stroke-width="8" stroke-linecap="round"/>
+  </g>
+  <text x="184" y="111" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="800" letter-spacing="5" fill="#8ea0c4">SNYT HOSTING</text>
+  <text x="64" y="224" font-family="Arial, Helvetica, sans-serif" font-size="75" font-weight="900" letter-spacing="-3" fill="#fff">SuperServer</text>
+  <text x="64" y="276" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="600" fill="#b8c5e1">Deploy a secure Multi-PHP web stack with one guided installer.</text>
+  <g font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="700">
+    <rect x="64" y="320" width="157" height="48" rx="15" fill="#ffffff" fill-opacity=".055" stroke="#ffffff" stroke-opacity=".14"/>
+    <text x="94" y="351" fill="#dce7ff">Apache</text>
+    <rect x="235" y="320" width="145" height="48" rx="15" fill="#ffffff" fill-opacity=".055" stroke="#ffffff" stroke-opacity=".14"/>
+    <text x="269" y="351" fill="#dce7ff">Nginx</text>
+    <rect x="394" y="320" width="180" height="48" rx="15" fill="#ffffff" fill-opacity=".055" stroke="#ffffff" stroke-opacity=".14"/>
+    <text x="424" y="351" fill="#dce7ff">Multi-PHP</text>
+    <rect x="588" y="320" width="172" height="48" rx="15" fill="#ffffff" fill-opacity=".055" stroke="#ffffff" stroke-opacity=".14"/>
+    <text x="619" y="351" fill="#dce7ff">CrowdSec</text>
+    <rect x="774" y="320" width="199" height="48" rx="15" fill="#ffffff" fill-opacity=".055" stroke="#ffffff" stroke-opacity=".14"/>
+    <text x="805" y="351" fill="#dce7ff">Let’s Encrypt</text>
+  </g>
+  <text x="1180" y="365" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="800" fill="#70eda8">v3.4.0</text>
+</svg>

@@ -1,75 +1,168 @@
-<div align="center">
+<p align="center">
+  <img src="./assets/readme/hero-banner.svg" alt="SNYT SuperServer" width="100%">
+</p>
 
-# ⚡ SNYT SuperServer
+<p align="center">
+  <a href="https://github.com/abdomuftah/SuperServer/releases"><img alt="Release" src="https://img.shields.io/badge/release-v3.4.0-7c3aed?style=flat-square"></a>
+  <a href="https://github.com/abdomuftah/SuperServer/actions"><img alt="Validation" src="https://github.com/abdomuftah/SuperServer/actions/workflows/validate.yml/badge.svg"></a>
+  <img alt="Shell" src="https://img.shields.io/badge/shell-Bash-4EAA25?style=flat-square&logo=gnubash&logoColor=white">
+  <img alt="Ubuntu" src="https://img.shields.io/badge/Ubuntu-22.04%20%7C%2024.04%20%7C%2026.04-E95420?style=flat-square&logo=ubuntu&logoColor=white">
+  <img alt="Debian" src="https://img.shields.io/badge/Debian-11%20%7C%2012%20%7C%2013-A81D33?style=flat-square&logo=debian&logoColor=white">
+  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square"></a>
+</p>
 
-### Deploy • Secure • Validate
+<p align="center">
+  <strong>A guided installer for Apache or Nginx, Multi-PHP, MariaDB, Redis, CrowdSec, Let’s Encrypt, and the tools needed to deploy modern web applications.</strong>
+</p>
 
-A modern interactive Multi-PHP web-stack installer for Ubuntu and Debian.
-
-![Version](https://img.shields.io/badge/version-3.4.0-7c3aed?style=for-the-badge)
-![Bash](https://img.shields.io/badge/Bash-installer-16a34a?style=for-the-badge&logo=gnubash)
-![Ubuntu](https://img.shields.io/badge/Ubuntu-22.04%20%7C%2024.04%20%7C%2026.04-E95420?style=for-the-badge&logo=ubuntu)
-![Debian](https://img.shields.io/badge/Debian-11%20%7C%2012%20%7C%2013-A81D33?style=for-the-badge&logo=debian)
-
-</div>
-
-> One readable installer, one small assets folder, generated private credentials, and a complete validation pass before success is reported.
-
----
-
-## ✨ What is new in 3.4.0
-
-- Direct `packages.sury.org/php` integration for true Multi-PHP on supported Ubuntu and Debian codenames.
-- PHP 8.1, 8.2, 8.3, 8.4 and 8.5 selection.
-- PHP extension profiles: **Essential**, **All**, and **Custom**.
-- Every user choice is collected before the service installation begins.
-- Real Let’s Encrypt email or **no-email registration**; fake/random email addresses are never generated.
-- Optional phpMyAdmin while keeping the permanent `/phpmyadmin/` path.
-- Optional MariaDB, Redis, Composer, Node.js, PM2, Python, Java, Docker, unattended updates and SNYT MOTD.
-- CrowdSec replaces Fail2ban.
-- Optional Nginx AppSec/WAF in addition to the CrowdSec firewall bouncer.
-- Installation plan saved to `/root/SNYT/install-plan.conf`.
-- `super-server` health and management helper.
-- Subdomains automatically inherit the main Let’s Encrypt email/no-email choice.
+<p align="center">
+  <a href="#-quick-install">Quick Install</a> ·
+  <a href="#-what-it-installs">Features</a> ·
+  <a href="#-installer-experience">Screenshots</a> ·
+  <a href="#-multi-php">Multi-PHP</a> ·
+  <a href="#-security">Security</a> ·
+  <a href="#-management-commands">Management</a>
+</p>
 
 ---
 
-## 🧭 Installer flow
+## 🚀 Quick install
 
-```mermaid
-flowchart TD
-    A[Start SuperServer] --> B[Repository preflight]
-    B --> C[Primary domain]
-    C --> D[Let's Encrypt contact]
-    D --> E[Apache or Nginx]
-    E --> F[PHP versions]
-    F --> G[Default PHP]
-    G --> H[PHP extension profile]
-    H --> I[phpMyAdmin]
-    I --> J[Optional components]
-    J --> K[CrowdSec protection]
-    K --> L[Review complete plan]
-    L --> M[Install without more prompts]
-    M --> N[Validate every selected service]
+> Run SuperServer on a clean Ubuntu or Debian server as `root`.
+
+```bash
+sudo -i
+cd /root
+curl -fsSL https://raw.githubusercontent.com/abdomuftah/SuperServer/main/SuperServer.sh -o SuperServer.sh
+chmod 700 SuperServer.sh
+bash -n SuperServer.sh
+./SuperServer.sh
 ```
 
-The small repository preflight happens before the questionnaire so SuperServer can display **real package availability**. No web stack, database, or optional service is installed until the final plan is approved.
+For an unstable SSH connection, run it inside `screen`:
+
+```bash
+apt update && apt install -y screen
+screen -S superserver
+./SuperServer.sh
+```
+
+Detach with `Ctrl+A`, then `D`. Return later with:
+
+```bash
+screen -r superserver
+```
+
+> [!IMPORTANT]
+> Point the primary domain’s DNS record to the server before requesting the Let’s Encrypt certificate.
+
+---
+
+## ✨ What it installs
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### Web stack
+
+- Apache **or** Nginx
+- PHP-FPM 8.1 through 8.5
+- Per-domain PHP version selection
+- Essential, All, or Custom PHP modules
+- Composer
+- Node.js, npm, and optional PM2
+- Python development tools
+- Optional Java JDK
+
+</td>
+<td width="50%" valign="top">
+
+### Services and security
+
+- MariaDB
+- Redis Server
+- Optional phpMyAdmin at `/phpmyadmin/`
+- Let’s Encrypt SSL and automatic renewal
+- UFW firewall
+- CrowdSec Security Engine
+- CrowdSec firewall bouncer
+- Optional Nginx AppSec/WAF
+- Optional Docker Engine and Compose
+
+</td>
+</tr>
+</table>
+
+SuperServer generates private credentials, stores the approved installation plan, installs the selected components, and validates the completed stack before reporting success.
+
+---
+
+## 🖥️ Installer experience
+
+All questions are collected **before installation begins**. After you approve the final plan, SuperServer continues without interrupting you for more input.
+
+<table>
+<tr>
+<td width="50%" valign="top">
+  <img src="./assets/readme/wizard-preview.svg" alt="SuperServer welcome screen" width="100%">
+  <p align="center"><sub>Clean welcome screen with detected system information.</sub></p>
+</td>
+<td width="50%" valign="top">
+  <img src="./assets/readme/php-selection.svg" alt="SuperServer PHP selection" width="100%">
+  <p align="center"><sub>Visible Multi-PHP choices and module profiles.</sub></p>
+</td>
+</tr>
+</table>
+
+<p align="center">
+  <img src="./assets/readme/installer-flow.svg" alt="SuperServer installer flow" width="100%">
+</p>
+
+The wizard asks for:
+
+1. Primary domain
+2. Real SSL email or no-email registration
+3. Apache or Nginx
+4. PHP versions and default PHP
+5. PHP extension profile
+6. phpMyAdmin and optional components
+7. CrowdSec protection level
+8. Final installation-plan review
+
+The approved plan is saved to:
+
+```text
+/root/SNYT/install-plan.conf
+```
+
+---
+
+## 🌐 Modern default page
+
+Every newly created domain receives a responsive `index.php` template with runtime status, PHP details, memory and disk usage, system load, SSL state, uptime, and deployment paths.
+
+<p align="center">
+  <img src="./assets/readme/dashboard-preview.svg" alt="SNYT SuperServer default index page" width="100%">
+</p>
+
+Sensitive credentials are never displayed on the page.
 
 ---
 
 ## 🐘 Multi-PHP
 
-SuperServer checks and can install:
+SuperServer configures the compatible [Sury PHP repository](https://packages.sury.org/php/) and checks every selected PHP version before installation.
 
-| PHP | Status label | Default behavior |
-|---|---|---|
-| 8.1 | Legacy / EOL | Explicit selection only |
-| 8.2 | Compatibility | Included by `all` when available |
-| 8.3 | Supported | Included by `all` |
-| 8.4 | Supported | Included by `all` |
-| 8.5 | Newest | Recommended default |
+| Version | Label | Selection behavior |
+|:--:|---|---|
+| PHP 8.1 | Legacy / EOL | Explicit selection or `all+legacy` |
+| PHP 8.2 | Compatibility | Included in `all` when available |
+| PHP 8.3 | Supported | Included in `all` |
+| PHP 8.4 | Supported | Included in `all` |
+| PHP 8.5 | Newest | Recommended default |
 
-Examples:
+Selection examples:
 
 ```text
 2
@@ -79,35 +172,40 @@ all
 all+legacy
 ```
 
-`all` excludes PHP 8.1. Use option `1`, a range containing it, or `all+legacy` when an old application genuinely requires it.
+`all` installs PHP 8.2–8.5. `all+legacy` also includes PHP 8.1.
 
 ### PHP-FPM only
 
-Apache and Nginx both use PHP-FPM sockets. SuperServer intentionally does **not** install `libapache2-mod-php`, avoiding two competing PHP handlers and preserving per-domain PHP selection.
+Both Apache and Nginx use PHP-FPM sockets. SuperServer intentionally avoids `libapache2-mod-php`, preventing competing PHP handlers and preserving per-domain PHP selection.
 
 ---
 
 ## 🧩 PHP extension profiles
 
-### Essential
+<details open>
+<summary><strong>Essential</strong> — recommended for most websites and applications</summary>
 
 ```text
-cURL, MySQL, Mbstring, XML, ZIP, Intl, GD,
-BCMath, OPcache and Readline
+cURL, MySQL / PDO MySQL, Mbstring, XML, ZIP,
+Intl, GD, BCMath, OPcache and Readline
 ```
 
-### All
+</details>
 
-Essential plus:
+<details>
+<summary><strong>All</strong> — installs every extension supported by SuperServer</summary>
 
 ```text
-Redis, SQLite3, SOAP, BZip2, Imagick, Tidy,
-XML-RPC, GMP, LDAP, IMAP, SNMP and APCu
+Essential modules, Redis, SQLite3, SOAP, BZip2,
+Imagick, Tidy, XML-RPC, GMP, LDAP, IMAP, SNMP and APCu
 ```
 
-### Custom
+</details>
 
-The installer displays a numbered menu and accepts selections such as:
+<details>
+<summary><strong>Custom</strong> — select the modules required by your application</summary>
+
+The installer presents a numbered menu and accepts values such as:
 
 ```text
 1-10,12,15
@@ -121,38 +219,44 @@ phpX.Y-common
 phpX.Y-fpm
 ```
 
-Some familiar names are grouped correctly:
+Some module names are provided by grouped packages:
 
-- `phpX.Y-xml` supplies DOM, SimpleXML, XML and XSL.
-- `phpX.Y-common` supplies common built-ins such as ctype, fileinfo, iconv and tokenizer.
+- `phpX.Y-xml` provides DOM, SimpleXML, XML and XSL.
+- `phpX.Y-common` provides ctype, fileinfo, iconv and tokenizer.
+
+</details>
 
 ---
 
-## 🌐 Apache or Nginx
+## ⚖️ Apache or Nginx
 
-| Feature | Apache | Nginx |
-|---|---:|---:|
-| `.htaccess` | ✅ | — |
+| Capability | Apache | Nginx |
+|---|:---:|:---:|
+| `.htaccess` support | ✅ | — |
 | PHP-FPM per domain | ✅ | ✅ |
-| Reverse proxy use | Good | Excellent |
+| Traditional PHP hosting | Excellent | Excellent |
+| Reverse proxy and Docker front-end | Good | Excellent |
 | CrowdSec firewall protection | ✅ | ✅ |
-| CrowdSec AppSec/WAF | Firewall mode | Optional Nginx mode |
+| CrowdSec AppSec/WAF | Firewall mode | Optional AppSec mode |
+
+Choose Apache for `.htaccess` compatibility and traditional hosting workflows. Choose Nginx for reverse proxying, Docker applications, and lightweight high-performance deployments.
 
 ---
 
-## 🛡️ CrowdSec
+## 🛡️ Security
 
-Security choices are collected in the initial wizard:
+SuperServer can configure:
 
-```text
-1) CrowdSec Security Engine + firewall bouncer
-2) CrowdSec + firewall bouncer + Nginx AppSec/WAF
-3) No CrowdSec
-```
+- UFW with the detected SSH port
+- Let’s Encrypt SSL and renewal testing
+- CrowdSec Security Engine
+- CrowdSec firewall bouncer
+- Linux and SSH log collections
+- Apache or Nginx log collection
+- Optional Nginx AppSec/WAF
+- Automatic security updates
 
-For Apache, SuperServer installs the Security Engine, Apache log collection and firewall bouncer. For Nginx, AppSec can additionally inspect HTTP requests for application-layer attacks.
-
-CrowdSec configuration and metrics:
+CrowdSec commands:
 
 ```bash
 cscli metrics
@@ -161,41 +265,22 @@ systemctl status crowdsec
 systemctl status crowdsec-firewall-bouncer
 ```
 
----
+### Let’s Encrypt contact
 
-## 🔐 Let’s Encrypt
-
-The wizard offers:
+The wizard offers two choices:
 
 ```text
-1) Real email address
-2) No email address
+1) Use a real email address
+2) Register without an email address
 ```
 
-Subdomains use the same choice automatically:
-
-```bash
-super-sdomain app.example.com 8.4
-```
-
-The helper reads:
-
-```text
-SSL Registration Mode
-SSL Email
-```
-
-from:
-
-```text
-/root/SNYT/serverInfo.txt
-```
+SuperServer does not generate fake email addresses. New domains inherit the main server’s SSL registration mode automatically.
 
 ---
 
 ## 🗃️ phpMyAdmin
 
-phpMyAdmin is optional, but when installed its path always stays:
+phpMyAdmin is optional. When enabled, its address remains predictable:
 
 ```text
 https://example.com/phpmyadmin/
@@ -207,51 +292,19 @@ It uses the selected default PHP-FPM version. Selecting phpMyAdmin automatically
 
 ## 📦 Optional components
 
-```text
-MariaDB
-Redis Server
-Composer
-Node.js and npm
-PM2
-Python development tools
-Java JDK
-Docker Engine and Compose
-Automatic security updates
-SNYT Fastfetch and MOTD
-```
+| Category | Components |
+|---|---|
+| Database and cache | MariaDB, Redis Server, phpMyAdmin |
+| Development | Composer, Node.js and npm, PM2, Python tools, Java JDK |
+| Containers | Docker Engine and Docker Compose |
+| System | Automatic security updates, SNYT Fastfetch and MOTD |
 
-Presets:
+Available presets:
 
 ```text
 recommended
 all
 none
-```
-
----
-
-## 🚀 Installation
-
-```bash
-sudo -i
-cd /root
-curl -fsSL https://raw.githubusercontent.com/abdomuftah/SuperServer/main/SuperServer.sh -o SuperServer.sh
-chmod 700 SuperServer.sh
-bash -n SuperServer.sh
-./SuperServer.sh
-```
-
-Run inside Screen for unstable SSH connections:
-
-```bash
-screen -S superserver
-./SuperServer.sh
-```
-
-Detach with `Ctrl+A`, then `D`. Return with:
-
-```bash
-screen -r superserver
 ```
 
 ---
@@ -264,19 +317,32 @@ super-sdomain app.example.com 8.2
 super-sdomain --list-php
 ```
 
-Every new domain receives:
+Each new domain receives:
 
-- A modern `index.php` page.
-- Its own Apache VirtualHost or Nginx server block.
-- A selected PHP-FPM socket.
-- Let’s Encrypt using the main server’s stored contact mode.
+- Its own Apache VirtualHost or Nginx server block
+- The selected PHP-FPM version
+- A modern `index.php` page
+- Let’s Encrypt using the stored main-domain contact mode
+
+The helper reads SSL settings from:
+
+```text
+/root/SNYT/serverInfo.txt
+```
 
 ---
 
-## 🧰 Management helper
+## 🧰 Management commands
+
+Launch the interactive helper:
 
 ```bash
 super-server
+```
+
+Or use direct commands:
+
+```bash
 super-server status
 super-server doctor
 super-server domains
@@ -286,7 +352,7 @@ super-server restart
 super-server info
 ```
 
-`super-server info` automatically redacts password lines.
+`super-server info` automatically redacts password values.
 
 ---
 
@@ -296,39 +362,47 @@ super-server info
 |---|---|
 | Credentials and server details | `/root/SNYT/serverInfo.txt` |
 | Approved installation plan | `/root/SNYT/install-plan.conf` |
-| Additional domain log | `/root/SNYT/domains.txt` |
-| Installer log | `/var/log/snyt-superserver.log` |
+| Added-domain history | `/root/SNYT/domains.txt` |
+| Installation log | `/var/log/snyt-superserver.log` |
 | Shared templates | `/usr/local/share/snyt-superserver/` |
 | Domain helper | `/usr/local/sbin/super-sdomain` |
 | Management helper | `/usr/local/sbin/super-server` |
 
-Keep `/root/SNYT/serverInfo.txt` private. It may contain generated MariaDB credentials.
+> [!CAUTION]
+> Keep `/root/SNYT/serverInfo.txt` private. It may contain generated MariaDB credentials.
 
 ---
 
 ## ✅ Validation
 
-Before announcing success, SuperServer validates:
+Before reporting success, SuperServer checks:
 
-- Every selected PHP CLI binary.
-- Every PHP-FPM service and socket.
-- Selected PHP extensions.
-- The default CLI PHP version.
-- PHP served through Apache or Nginx.
-- Web-server configuration syntax.
-- Selected MariaDB, Redis, Node.js, Python, Composer and Docker components.
-- CrowdSec when selected.
-- Let’s Encrypt renewal with a dry run after successful issuance.
+- Every selected PHP CLI binary
+- Every selected PHP-FPM service and socket
+- Selected PHP extensions
+- The default CLI PHP version
+- PHP delivery through Apache or Nginx
+- Web-server configuration syntax
+- MariaDB, Redis, Node.js, Python, Composer, Docker, and CrowdSec when selected
+- Let’s Encrypt renewal using a dry run after certificate issuance
+
+Local repository validation is provided by:
+
+```text
+.github/workflows/validate.yml
+```
 
 ---
 
-## 🧪 Recommended test matrix
+<details>
+<summary><strong>🧪 Recommended test matrix</strong></summary>
 
 ```text
 Ubuntu 26.04 + Nginx + PHP 8.2/8.3/8.4/8.5
 Ubuntu 26.04 + Apache + PHP 8.2/8.4/8.5
 Ubuntu 24.04 + Nginx + Essential modules
 Ubuntu 24.04 + Apache + All modules
+Custom PHP extension profile
 No-email SSL mode
 phpMyAdmin disabled
 CrowdSec firewall mode
@@ -336,23 +410,25 @@ Nginx CrowdSec AppSec mode
 Docker selected and unselected
 ```
 
-Take a clean VM snapshot before every test.
+Take a clean VM snapshot before every installation test.
 
----
+</details>
 
-## 📚 Upstream references
+<details>
+<summary><strong>📚 Upstream documentation</strong></summary>
 
-- [Sury PHP repository instructions](https://packages.sury.org/php/README.txt)
+- [Sury PHP repository](https://packages.sury.org/php/README.txt)
 - [CrowdSec Linux installation](https://docs.crowdsec.net/u/getting_started/installation/linux/)
 - [CrowdSec firewall bouncer](https://docs.crowdsec.net/u/bouncers/firewall/)
 - [CrowdSec Nginx bouncer](https://docs.crowdsec.net/u/bouncers/nginx/)
 - [Certbot documentation](https://eff-certbot.readthedocs.io/en/stable/using.html)
 - [PHP supported versions](https://www.php.net/supported-versions.php)
 
+</details>
+
 ---
 
-<div align="center">
-
-Built with care by **SNYT Hosting**
-
-</div>
+<p align="center">
+  Built with care by <strong>SNYT Hosting</strong><br>
+  <sub>Deploy • Secure • Validate</sub>
+</p>

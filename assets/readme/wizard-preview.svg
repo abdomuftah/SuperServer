@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760" role="img" aria-label="SuperServer installer welcome screen">
+  <defs>
+    <linearGradient id="window" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#101426"/><stop offset="1" stop-color="#0c1020"/></linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(1000 40) rotate(135) scale(500 350)"><stop stop-color="#7b55d8" stop-opacity=".28"/><stop offset="1" stop-color="#7b55d8" stop-opacity="0"/></radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dy="24" stdDeviation="28" flood-color="#000" flood-opacity=".55"/></filter>
+  </defs>
+  <rect width="1280" height="760" fill="#070a12"/>
+  <g filter="url(#shadow)">
+    <rect x="60" y="44" width="1160" height="672" rx="22" fill="url(#window)" stroke="#343a55"/>
+    <rect x="60" y="44" width="1160" height="672" rx="22" fill="url(#glow)"/>
+    <path d="M60 96H1220" stroke="#343a55"/>
+    <circle cx="92" cy="70" r="7" fill="#ff5f57"/><circle cx="116" cy="70" r="7" fill="#febc2e"/><circle cx="140" cy="70" r="7" fill="#28c840"/>
+    <text x="178" y="77" font-family="Menlo,Consolas,monospace" font-size="15" fill="#96a1bd">root@server — SuperServer</text>
+  </g>
+  <g font-family="Menlo,Consolas,monospace">
+    <text x="100" y="143" font-size="24" font-weight="800" fill="#55b6ff">SNYT SuperServer</text>
+    <text x="100" y="173" font-size="15" fill="#7c91b6">Reliable web-stack automation by SNYT Hosting</text>
+    <rect x="100" y="205" width="720" height="284" rx="6" fill="#0e1424" stroke="#cf4b9b"/>
+    <path d="M100 252H820" stroke="#cf4b9b"/>
+    <text x="126" y="236" font-size="17" font-weight="800" fill="#70eda8">Deploy • Secure • Validate</text>
+    <text x="126" y="286" font-size="16" fill="#96a1bd">Version :</text><text x="238" y="286" font-size="16" font-weight="800" fill="#f4f7ff">3.4.0</text>
+    <text x="126" y="318" font-size="16" fill="#96a1bd">System  :</text><text x="238" y="318" font-size="16" fill="#70eda8">Ubuntu 26.04 LTS (resolute / amd64)</text>
+    <text x="126" y="350" font-size="16" fill="#96a1bd">SSH     :</text><text x="238" y="350" font-size="16" fill="#70eda8">port 22</text>
+    <text x="126" y="394" font-size="15" fill="#70eda8">This guided wizard collects every choice before installation:</text>
+    <text x="126" y="422" font-size="15" fill="#96a1bd">web server, Multi-PHP, extension profile, components and security.</text>
+    <text x="126" y="458" font-size="15" fill="#70eda8">Credentials are stored privately in:</text>
+    <text x="126" y="482" font-size="15" font-weight="800" fill="#4de2d1">/root/SNYT/serverInfo.txt</text>
+    <text x="100" y="539" font-size="15" fill="#96a1bd">Detected: Ubuntu 26.04 LTS (resolute / amd64)</text>
+    <text x="100" y="570" font-size="15" fill="#96a1bd">PHP source: packages.sury.org/php</text>
+    <text x="100" y="621" font-size="17" fill="#70eda8">Primary web domain (example.com):</text>
+    <rect x="438" y="603" width="11" height="22" fill="#70eda8"/>
+  </g>
+</svg>
