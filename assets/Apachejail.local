@@ -1,0 +1,20 @@
+[DEFAULT]
+bantime = 1h
+findtime = 10m
+maxretry = 5
+backend = systemd
+banaction = ufw
+
+[sshd]
+enabled = true
+
+[apache-auth]
+enabled = true
+port = http,https
+logpath = /var/log/apache2/*error.log
+maxretry = 5
+
+[apache-badbots]
+enabled = true
+port = http,https
+logpath = /var/log/apache2/*access.log

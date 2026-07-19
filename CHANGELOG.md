@@ -1,55 +1,61 @@
 # Changelog
 
-All notable changes to **SNYT SuperServer** are documented here.
+All notable changes to SNYT SuperServer are documented here.
 
-## [3.2.0] - 2026-07-19
+## [3.3.0] - 2026-07-19
 
 ### Added
 
-- Friendly Apache/Nginx selection with descriptions and confirmation.
-- Automatic detection of the effective OpenSSH port.
-- UFW and Fail2ban configuration for custom SSH ports.
-- Complete PHP-version discovery based on CLI, FPM and required extensions.
-- Exact PHP selection from only complete versions available through APT.
-- PHP CLI/FPM/socket/extension validation.
-- Temporary local web request that confirms the selected PHP version is served by Apache or Nginx.
-- Final required-service validation before installation success is reported.
-- Previous-installation guard with an explicit `--force` testing option.
-- `--version` and `--help` command-line options.
-- NodeSource failure fallback to distribution Node.js packages.
-- phpMyAdmin post-install PHP revalidation.
-- Interactive PHP-FPM selection in both `super-sdomain` helpers.
-- Per-site PHP-FPM socket binding for Apache VirtualHosts.
-- Domain creation history in `/root/SNYT/domains.txt`.
-- Dynamic HTTP/HTTPS phpMyAdmin URL in `serverInfo.txt`.
+- Multi-PHP installation in one run.
+- Selection syntax supporting a single option, comma-separated options, ranges, or `all`.
+- Default PHP selection for CLI, the primary domain and phpMyAdmin.
+- Per-version PHP-FPM installation, configuration and validation.
+- `super-sdomain --list-php` command.
+- Local installed template directory at `/usr/local/share/snyt-superserver` so new domains do not depend on the GitHub branch state.
+- Unified modern and responsive `assets/index.php` template.
+- Dynamic starter-page system information including memory, disk, load, uptime and HTTPS state.
+- Redesigned installer welcome screen and completion summary.
 
 ### Changed
 
-- SuperServer no longer installs the generic `phpX.Y` meta package.
-- PHP core and optional packages are handled separately.
-- Apache always uses PHP-FPM instead of mod_php.
-- The selected PHP alternatives are re-applied after phpMyAdmin installation.
-- Redis repository and service handling are safer on new Ubuntu/Debian releases.
-- Python keeps `--break-system-packages` where supported without trying to replace the APT-managed pip package.
-- Installer output, errors, summary and README were redesigned.
-- Credentials, log and state files use restricted permissions.
+- `super-sdomain` now reads the Let's Encrypt email automatically from `/root/SNYT/serverInfo.txt`.
+- The add-domain helper now accepts only the domain and optional PHP version.
+- Apache uses explicit per-VirtualHost FPM sockets and disables global PHP handlers to protect Multi-PHP routing.
+- Apache phpMyAdmin configuration now uses the selected default FPM socket explicitly.
+- The installer records selected, installed and default PHP versions in `serverInfo.txt`.
+- Final validation checks every selected PHP-FPM service and socket.
+- Web runtime validation supports both pre-SSL HTTP and post-SSL local HTTPS checks.
+- Apache and Nginx now share one starter-page template.
+
+### Security
+
+- The starter page intentionally exposes only non-sensitive runtime information.
+- Generated database credentials remain restricted to `/root/SNYT/serverInfo.txt`.
+
+## [3.2.2] - 2026-07-19
 
 ### Fixed
 
-- Selecting a PHP version whose CLI package existed but whose FPM or required extensions were missing.
-- PHP versions other than 8.2 failing later during FPM service activation.
-- Generic PHP packages pulling an unintended default PHP stack or Apache module.
-- phpMyAdmin URL being recorded as HTTPS when certificate issuance failed.
-- UFW assuming SSH always listens on port 22.
-- Fail2ban using the wrong port on hardened SSH installations.
-- Apache add-domain requests not actually binding the site to the requested PHP version.
-- Redis linked-unit enable errors.
+- Removed duplicate Nginx `try_files` directives on Ubuntu 26.04 / Nginx 1.28+.
+- Added a compatibility cleanup for older Nginx templates.
+- Included all consumed assets in the release bundle.
+- Removed deprecated PHP session directives from the SNYT PHP configuration.
 
-### Validation status
+## [3.2.1] - 2026-07-19
 
-- Bash syntax validation completed.
-- Full installation testing must be completed on clean VM snapshots before production release approval.
+### Fixed
 
-## [3.1.4]
+- PHP 8.5 OPcache detection when no separate `php8.5-opcache` package is published.
+- Automatic Ubuntu Universe repository enablement.
+- Improved missing-PHP-package diagnostics.
 
-- Previous public repository version before the web-server and PHP reliability update.
+## [3.2.0] - 2026-07-18
+
+### Added
+
+- Friendly Apache/Nginx choice.
+- Complete PHP package validation.
+- PHP-FPM runtime and socket validation.
+- Automatic SSH-port detection for UFW and Fail2ban.
+- Safer previous-installation guard.
+- Modern README and structured release bundle.

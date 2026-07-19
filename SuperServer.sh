@@ -8,7 +8,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-SUPERSERVER_VERSION="3.2.0"
+SUPERSERVER_VERSION="3.3.0"
 REPO_RAW="https://raw.githubusercontent.com/abdomuftah/SuperServer/main"
 INFO_DIR="/root/SNYT"
 INFO_FILE="$INFO_DIR/serverInfo.txt"
@@ -39,12 +39,13 @@ pma_app_password=""
 
 PHP_VERSION_CANDIDATES=(8.5 8.4 8.3 8.2 8.1)
 PHP_CORE_SUFFIXES=(
-  cli common fpm curl mysql mbstring xml zip intl gd bcmath opcache
+  cli common fpm curl mysql mbstring xml zip intl gd bcmath
 )
 PHP_OPTIONAL_SUFFIXES=(
   redis sqlite3 soap bz2 imagick tidy
 )
 AVAILABLE_PHP_VERSIONS=()
+PHP_SELECTED_VERSIONS=()
 
 usage() {
   cat <<EOF
@@ -104,6 +105,21 @@ fatal() {
   exit 1
 }
 
+join_by() {
+  local delimiter="$1"
+  shift
+  local result=""
+  local item
+
+  for item in "$@"; do
+    if [[ -n "$result" ]]; then
+      result+="$delimiter"
+    fi
+    result+="$item"
+  done
+  printf '%s' "$result"
+}
+
 section() {
   echo
   echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -113,16 +129,30 @@ section() {
 
 print_banner() {
   clear || true
+  local width=70
+
   echo -e "${BLUE}${BOLD}"
   cat <<'BANNER'
-   _____ _   ___   _________   _____                         _____
-  / ___// | / / | / /_  __/  / ___/___  ______   _____  ____/ ___/
-  \__ \/  |/ /  |/ / / /     \__ \/ _ \/ ___/ | / / _ \/ __ \__ \
- ___/ / /|  / /|  / / /     ___/ /  __/ /   | |/ /  __/ /_/ /__/ /
-/____/_/ |_/_/ |_/ /_/     /____/\___/_/    |___/\___/\__,_/____/
+   _____ _   ___   _________   _____                        
+  / ___// | / / | / /_  __/  / ___/___  ______   _____  _____
+  \__ \/  |/ /  |/ / / /     \__ \/ _ \/ ___/ | / / _ \/ ___/
+ ___/ / /|  / /|  / / /     ___/ /  __/ /   | |/ /  __/ /    
+/____/_/ |_/_/ |_/ /_/     /____/\___/_/    |___/\___/_/     
 BANNER
-  echo -e "${NC}${DIM}  Reliable web-stack automation by SNYT Hosting${NC}"
-  echo -e "  Version ${BOLD}$SUPERSERVER_VERSION${NC}"
+  echo -e "${NC}"
+  echo -e "${MAGENTA}╭────────────────────────────────────────────────────────────────────╮${NC}"
+  echo -e "${MAGENTA}│${NC}  ${BOLD}Deploy • Secure • Validate${NC}                                       ${MAGENTA}│${NC}"
+  echo -e "${MAGENTA}├────────────────────────────────────────────────────────────────────┤${NC}"
+  printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "Version : $SUPERSERVER_VERSION"
+  printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "System  : $PRETTY_NAME ($VERSION_CODENAME / $ARCH)"
+  printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "SSH     : port $SSH_PORT"
+  echo -e "${MAGENTA}├────────────────────────────────────────────────────────────────────┤${NC}"
+  echo -e "${MAGENTA}│${NC}  This wizard installs Apache or Nginx, Multi-PHP FPM, MariaDB, ${MAGENTA}│${NC}"
+  echo -e "${MAGENTA}│${NC}  Redis, SSL, development tools, firewall and server hardening. ${MAGENTA}│${NC}"
+  echo -e "${MAGENTA}│${NC}                                                                    ${MAGENTA}│${NC}"
+  echo -e "${MAGENTA}│${NC}  Credentials are generated automatically and stored privately in: ${MAGENTA}│${NC}"
+  echo -e "${MAGENTA}│${NC}  ${CYAN}/root/SNYT/serverInfo.txt${NC}                                      ${MAGENTA}│${NC}"
+  echo -e "${MAGENTA}╰────────────────────────────────────────────────────────────────────╯${NC}"
   echo
 }
 
@@ -367,9 +397,27 @@ php_version_complete() {
   return 0
 }
 
+php_missing_core_packages() {
+  local version="$1"
+  local suffix package
+  local missing=()
+
+  for suffix in "${PHP_CORE_SUFFIXES[@]}"; do
+    package="php${version}-${suffix}"
+    package_has_candidate "$package" || missing+=("$package")
+  done
+
+  if [[ ${#missing[@]} -eq 0 ]]; then
+    printf 'none'
+  else
+    printf '%s ' "${missing[@]}"
+  fi
+}
+
 discover_php_versions() {
   local version
   AVAILABLE_PHP_VERSIONS=()
+  PHP_SELECTED_VERSIONS=()
 
   for version in "${PHP_VERSION_CANDIDATES[@]}"; do
     if php_version_complete "$version"; then
@@ -377,18 +425,68 @@ discover_php_versions() {
     fi
   done
 
-  [[ ${#AVAILABLE_PHP_VERSIONS[@]} -gt 0 ]] || fatal \
-    "No complete PHP version was found. SuperServer requires CLI, FPM and all core extensions for the same version."
+  if [[ ${#AVAILABLE_PHP_VERSIONS[@]} -eq 0 ]]; then
+    warn "PHP package diagnostics:"
+    for version in "${PHP_VERSION_CANDIDATES[@]}"; do
+      echo "  PHP $version missing: $(php_missing_core_packages "$version")"
+    done
+    fatal "No complete PHP version was found. SuperServer requires CLI, FPM and all core extensions for the same version."
+  fi
 }
 
-choose_php_version() {
+parse_php_selection() {
+  local input="$1"
+  local max="${#AVAILABLE_PHP_VERSIONS[@]}"
+  local token start end number
+  local -a tokens=()
+  local -A selected=()
+
+  input="${input//[[:space:]]/}"
+  [[ -n "$input" ]] || input="all"
+
+  if [[ "$input" == "all" || "$input" == "ALL" || "$input" == "*" ]]; then
+    PHP_SELECTED_VERSIONS=("${AVAILABLE_PHP_VERSIONS[@]}")
+    return 0
+  fi
+
+  IFS=',' read -r -a tokens <<< "$input"
+  for token in "${tokens[@]}"; do
+    if [[ "$token" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+      start="${BASH_REMATCH[1]}"
+      end="${BASH_REMATCH[2]}"
+      (( start <= end )) || return 1
+      for (( number=start; number<=end; number++ )); do
+        (( number >= 1 && number <= max )) || return 1
+        selected["$number"]=1
+      done
+    elif [[ "$token" =~ ^[0-9]+$ ]]; then
+      number="$token"
+      (( number >= 1 && number <= max )) || return 1
+      selected["$number"]=1
+    else
+      return 1
+    fi
+  done
+
+  PHP_SELECTED_VERSIONS=()
+  for (( number=1; number<=max; number++ )); do
+    [[ -n "${selected[$number]:-}" ]] || continue
+    PHP_SELECTED_VERSIONS+=("${AVAILABLE_PHP_VERSIONS[$((number - 1))]}")
+  done
+
+  [[ ${#PHP_SELECTED_VERSIONS[@]} -gt 0 ]]
+}
+
+choose_php_versions() {
   local selection=""
+  local default_selection=""
   local index version
 
-  section "PHP version selection"
+  section "Multi-PHP version selection"
   discover_php_versions
 
-  echo "Only complete PHP versions are shown. Each option has CLI, FPM and all required core extensions."
+  echo "Install one or several complete PHP-FPM versions."
+  echo "Every displayed version has CLI, FPM and all required core extensions."
   echo
 
   for index in "${!AVAILABLE_PHP_VERSIONS[@]}"; do
@@ -403,31 +501,53 @@ choose_php_version() {
   done
 
   echo
+  echo "Examples: 1  |  1,3  |  1-3  |  all"
   while true; do
-    read -r -p "Select PHP [1-${#AVAILABLE_PHP_VERSIONS[@]}]: " selection
-    if [[ "$selection" =~ ^[0-9]+$ ]] \
-      && (( selection >= 1 && selection <= ${#AVAILABLE_PHP_VERSIONS[@]} )); then
-      php_version="${AVAILABLE_PHP_VERSIONS[$((selection - 1))]}"
+    read -r -p "Versions to install [all]: " selection
+    if parse_php_selection "$selection"; then
       break
     fi
-    warn "Choose a number between 1 and ${#AVAILABLE_PHP_VERSIONS[@]}."
+    warn "Invalid selection. Use numbers, comma-separated values, a range, or all."
   done
 
-  php_version_complete "$php_version" || fatal "PHP $php_version became incomplete after selection."
-  safe_write_info "Selected PHP Version" "$php_version"
-  ok "PHP $php_version selected and verified as a complete package set."
+  if [[ ${#PHP_SELECTED_VERSIONS[@]} -eq 1 ]]; then
+    php_version="${PHP_SELECTED_VERSIONS[0]}"
+  else
+    echo
+    echo "Choose the default PHP version for CLI, the primary domain and phpMyAdmin:"
+    for index in "${!PHP_SELECTED_VERSIONS[@]}"; do
+      printf '  %d) PHP %s\n' "$((index + 1))" "${PHP_SELECTED_VERSIONS[$index]}"
+    done
+
+    while true; do
+      read -r -p "Default PHP [1-${#PHP_SELECTED_VERSIONS[@]}]: " default_selection
+      if [[ "$default_selection" =~ ^[0-9]+$ ]] \
+        && (( default_selection >= 1 && default_selection <= ${#PHP_SELECTED_VERSIONS[@]} )); then
+        php_version="${PHP_SELECTED_VERSIONS[$((default_selection - 1))]}"
+        break
+      fi
+      warn "Choose a number between 1 and ${#PHP_SELECTED_VERSIONS[@]}."
+    done
+  fi
+
+  local selected_text
+  selected_text="$(join_by ", " "${PHP_SELECTED_VERSIONS[@]}")"
+  safe_write_info "Selected PHP Versions" "$selected_text"
+  safe_write_info "Default PHP Version" "$php_version"
+  ok "PHP versions selected: $selected_text (default: $php_version)."
 }
 
 show_installation_summary() {
   echo
-  echo -e "${BOLD}Installation summary${NC}"
-  echo -e "  System      : $PRETTY_NAME"
-  echo -e "  Architecture: $ARCH"
-  echo -e "  Domain      : $domain"
-  echo -e "  Web server  : ${web_server^}"
-  echo -e "  PHP         : $php_version"
-  echo -e "  SSH port    : $SSH_PORT"
-  echo -e "  Credentials : $INFO_FILE"
+  echo -e "${BOLD}Installation plan${NC}"
+  echo -e "  System       : $PRETTY_NAME"
+  echo -e "  Architecture : $ARCH"
+  echo -e "  Domain       : $domain"
+  echo -e "  Web server   : ${web_server^}"
+  echo -e "  PHP versions : $(join_by ", " "${PHP_SELECTED_VERSIONS[@]}")"
+  echo -e "  Default PHP  : $php_version"
+  echo -e "  SSH port     : $SSH_PORT"
+  echo -e "  Credentials  : $INFO_FILE"
   echo
 
   confirm "Start the installation?" "Y" || fatal "Installation cancelled by the user."
@@ -460,6 +580,11 @@ configure_repositories() {
   section "Configuring compatible repositories"
 
   if [[ "$DISTRO_ID" == "ubuntu" ]]; then
+    # Several required PHP packages (including FPM on current Ubuntu releases)
+    # are published in Universe. Enabling it is safe and idempotent.
+    info "Ensuring the Ubuntu Universe repository is enabled."
+    add-apt-repository -y universe
+
     add_launchpad_ppa_if_supported ppa:ondrej/php || true
 
     # Web-server PPAs are optional. Distribution packages remain the safe fallback.
@@ -556,24 +681,30 @@ EOF
   safe_write_info "MariaDB Version" "$(mariadb --version | head -n1)"
 }
 
-install_php() {
-  section "Installing PHP $php_version"
-
+install_single_php_version() {
+  local version="$1"
   local core_packages=()
   local optional_packages=()
   local skipped_optional=()
   local suffix package
 
-  # Deliberately do not install the generic phpX.Y meta package. On some releases
-  # it may select mod_php/Apache or a different default PHP stack.
+  section "Installing PHP $version"
+
   for suffix in "${PHP_CORE_SUFFIXES[@]}"; do
-    package="php${php_version}-${suffix}"
+    package="php${version}-${suffix}"
     package_has_candidate "$package" || fatal "Required PHP package is unavailable: $package"
     core_packages+=("$package")
   done
 
+  package="php${version}-opcache"
+  if package_has_candidate "$package"; then
+    core_packages+=("$package")
+  else
+    info "No separate $package package is published; OPcache will be validated as a built-in module."
+  fi
+
   for suffix in "${PHP_OPTIONAL_SUFFIXES[@]}"; do
-    package="php${php_version}-${suffix}"
+    package="php${version}-${suffix}"
     if package_has_candidate "$package"; then
       optional_packages+=("$package")
     else
@@ -584,26 +715,42 @@ install_php() {
   apt-get install -y "${core_packages[@]}" "${optional_packages[@]}"
 
   if [[ ${#skipped_optional[@]} -gt 0 ]]; then
-    warn "Optional PHP packages unavailable and skipped: ${skipped_optional[*]}"
+    warn "Optional PHP $version packages unavailable and skipped: ${skipped_optional[*]}"
   fi
 
+  systemctl enable --now "php${version}-fpm"
+  apply_php_configuration "$version"
+  verify_php_runtime "$version"
+}
+
+install_php_versions() {
+  local version module conf
+
+  for version in "${PHP_SELECTED_VERSIONS[@]}"; do
+    install_single_php_version "$version"
+  done
+
   configure_php_alternatives
-  systemctl enable --now "php${php_version}-fpm"
 
   if [[ "$web_server" == "apache" ]]; then
-    # SuperServer always uses PHP-FPM, including with Apache.
-    local module
+    # Multi-PHP is routed per VirtualHost. Disable global mod_php/FPM handlers
+    # so one PHP version cannot accidentally override another site's socket.
     while read -r module; do
       [[ -n "$module" ]] && a2dismod "$module" 2>/dev/null || true
     done < <(find /etc/apache2/mods-enabled -maxdepth 1 -type l -name 'php*.load' \
       -printf '%f\n' 2>/dev/null | sed 's/\.load$//')
 
-    a2enmod proxy_fcgi setenvif rewrite headers ssl http2
-    a2enconf "php${php_version}-fpm"
+    while read -r conf; do
+      [[ -n "$conf" ]] && a2disconf "$conf" 2>/dev/null || true
+    done < <(find /etc/apache2/conf-enabled -maxdepth 1 -type l -name 'php*-fpm.conf' \
+      -printf '%f\n' 2>/dev/null | sed 's/\.conf$//')
+
+    a2enmod proxy proxy_fcgi setenvif rewrite headers ssl http2
+    apache2ctl configtest
+    systemctl reload apache2
   fi
 
-  apply_php_configuration
-  verify_php_runtime
+  safe_write_info "Installed PHP Versions" "$(join_by ", " "${PHP_SELECTED_VERSIONS[@]}")"
 }
 
 configure_php_alternatives() {
@@ -620,33 +767,40 @@ configure_php_alternatives() {
 }
 
 apply_php_configuration() {
-  section "Applying the SNYT PHP configuration"
-
+  local version="$1"
   local sapi ini
-  for sapi in cli fpm apache2; do
-    ini="/etc/php/$php_version/$sapi/php.ini"
+
+  section "Applying the SNYT PHP $version configuration"
+
+  for sapi in cli fpm; do
+    ini="/etc/php/$version/$sapi/php.ini"
     [[ -f "$ini" ]] || continue
     backup_file "$ini"
     fetch_asset php.ini "$ini"
   done
 
-  systemctl restart "php${php_version}-fpm"
+  systemctl restart "php${version}-fpm"
 }
 
 verify_php_runtime() {
+  local version="${1:-$php_version}"
+  local cli_bin="/usr/bin/php${version}"
   local cli_version
-  cli_version="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"
 
-  [[ "$cli_version" == "$php_version" ]] || fatal \
-    "PHP CLI mismatch: selected $php_version, but the active CLI is $cli_version."
-  systemctl is-active --quiet "php${php_version}-fpm" || fatal "PHP-FPM $php_version is not active."
-  [[ -S "/run/php/php${php_version}-fpm.sock" ]] || fatal \
-    "PHP-FPM socket is missing: /run/php/php${php_version}-fpm.sock"
+  [[ -x "$cli_bin" ]] || fatal "PHP $version CLI binary is missing: $cli_bin"
+  cli_version="$($cli_bin -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"
 
-  php -m | grep -qi '^curl$' || fatal "The PHP curl extension is not loaded."
-  php -m | grep -qi '^mbstring$' || fatal "The PHP mbstring extension is not loaded."
-  php -m | grep -qi '^mysqli$' || fatal "The PHP MySQL extension is not loaded."
-  ok "PHP $php_version CLI and FPM passed validation."
+  [[ "$cli_version" == "$version" ]] || fatal \
+    "PHP CLI mismatch: expected $version, but $cli_bin reports $cli_version."
+  systemctl is-active --quiet "php${version}-fpm" || fatal "PHP-FPM $version is not active."
+  [[ -S "/run/php/php${version}-fpm.sock" ]] || fatal \
+    "PHP-FPM socket is missing: /run/php/php${version}-fpm.sock"
+
+  "$cli_bin" -m | grep -qi '^curl$' || fatal "PHP $version curl extension is not loaded."
+  "$cli_bin" -m | grep -qi '^mbstring$' || fatal "PHP $version mbstring extension is not loaded."
+  "$cli_bin" -m | grep -qi '^mysqli$' || fatal "PHP $version MySQL extension is not loaded."
+  "$cli_bin" -m | grep -qi '^Zend OPcache$' || fatal "PHP $version Zend OPcache is not loaded."
+  ok "PHP $version CLI, FPM and OPcache passed validation."
 }
 
 create_primary_website() {
@@ -655,9 +809,9 @@ create_primary_website() {
   mkdir -p "/var/www/html/$domain"
 
   if [[ "$web_server" == "apache" ]]; then
-    fetch_asset ApacheIndex.php "/var/www/html/$domain/index.php"
+    fetch_asset index.php "/var/www/html/$domain/index.php"
     fetch_asset ApacheExample.conf "/etc/apache2/sites-available/$domain.conf"
-    sed -i "s/example.com/$domain/g; s/phpversion/$php_version/g" \
+    sed -i "s/primary.example.com/$domain/g; s/example.com/$domain/g; s/phpversion/$php_version/g" \
       "/var/www/html/$domain/index.php" "/etc/apache2/sites-available/$domain.conf"
 
     a2dissite 000-default.conf 2>/dev/null || true
@@ -665,10 +819,16 @@ create_primary_website() {
     apache2ctl configtest
     systemctl reload apache2
   else
-    fetch_asset nginxIndex.php "/var/www/html/$domain/index.php"
+    fetch_asset index.php "/var/www/html/$domain/index.php"
     fetch_asset nginxExample.conf "/etc/nginx/sites-available/$domain.conf"
-    sed -i "s/example.com/$domain/g; s/phpversion/$php_version/g" \
+    sed -i "s/primary.example.com/$domain/g; s/example.com/$domain/g; s/phpversion/$php_version/g" \
       "/var/www/html/$domain/index.php" "/etc/nginx/sites-available/$domain.conf"
+
+    # Ubuntu's snippets/fastcgi-php.conf already provides a try_files guard.
+    # Older SuperServer templates added a second try_files directive in the
+    # same location, which causes nginx 1.28+ to fail with "directive is duplicate".
+    perl -0pi -e 's/\btry_files\s+\$uri\s+=404;\s*(?=include\s+snippets\/fastcgi-php\.conf;)/ /g' \
+      "/etc/nginx/sites-available/$domain.conf"
 
     ln -sfn "/etc/nginx/sites-available/$domain.conf" "/etc/nginx/sites-enabled/$domain.conf"
     rm -f /etc/nginx/sites-enabled/default
@@ -695,8 +855,13 @@ PHP_CHECK
   chmod 0644 "$check_file"
 
   for attempt in 1 2 3 4 5; do
-    response="$(curl -fsS --max-time 10 -H "Host: $domain" \
-      "http://127.0.0.1/.snyt-php-runtime-check.php" 2>/dev/null || true)"
+    if [[ "$SSL_ACTIVE" == true && -f "/etc/letsencrypt/live/$domain/fullchain.pem" ]]; then
+      response="$(curl -kfsS --max-time 10 --resolve "$domain:443:127.0.0.1" \
+        "https://$domain/.snyt-php-runtime-check.php" 2>/dev/null || true)"
+    else
+      response="$(curl -fsS --max-time 10 -H "Host: $domain" \
+        "http://127.0.0.1/.snyt-php-runtime-check.php" 2>/dev/null || true)"
+    fi
     [[ "$response" == "$php_version" ]] && break
     sleep 2
   done
@@ -728,8 +893,25 @@ configure_phpmyadmin() {
   verify_php_runtime
 
   if [[ "$web_server" == "apache" ]]; then
-    [[ -e /etc/apache2/conf-enabled/phpmyadmin.conf ]] \
-      || ln -s /etc/phpmyadmin/apache.conf /etc/apache2/conf-enabled/phpmyadmin.conf
+    rm -f /etc/apache2/conf-enabled/phpmyadmin.conf
+    cat > /etc/apache2/conf-available/snyt-phpmyadmin.conf <<EOF
+Alias /phpmyadmin /usr/share/phpmyadmin
+
+<Directory /usr/share/phpmyadmin>
+    Options FollowSymLinks
+    DirectoryIndex index.php
+    Require all granted
+
+    <FilesMatch \.php$>
+        SetHandler "proxy:unix:/run/php/php${php_version}-fpm.sock|fcgi://localhost/"
+    </FilesMatch>
+</Directory>
+
+<Directory /usr/share/phpmyadmin/setup>
+    Require all denied
+</Directory>
+EOF
+    a2enconf snyt-phpmyadmin
     apache2ctl configtest
     systemctl reload apache2
   else
@@ -1007,9 +1189,15 @@ configure_ssl() {
 install_domain_helper() {
   section "Installing the add-domain helper"
 
+  local shared_assets="/usr/local/share/snyt-superserver"
+  install -d -m 0755 "$shared_assets"
+  fetch_asset index.php "$shared_assets/index.php" 0644
+
   if [[ "$web_server" == "apache" ]]; then
+    fetch_asset ApacheExample.conf "$shared_assets/ApacheExample.conf" 0644
     fetch_asset apache_setup.sh /usr/local/sbin/super-sdomain 0700
   else
+    fetch_asset nginxExample.conf "$shared_assets/nginxExample.conf" 0644
     fetch_asset nginx_setup.sh /usr/local/sbin/super-sdomain 0700
   fi
 
@@ -1019,8 +1207,17 @@ install_domain_helper() {
 final_validation() {
   section "Running final validation"
 
+  local version
   configure_php_alternatives
-  verify_php_runtime
+
+  for version in "${PHP_SELECTED_VERSIONS[@]}"; do
+    verify_php_runtime "$version"
+  done
+
+  local active_cli
+  active_cli="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"
+  [[ "$active_cli" == "$php_version" ]] || fatal \
+    "Default PHP CLI mismatch: selected $php_version, active CLI is $active_cli."
 
   if [[ "$web_server" == "apache" ]]; then
     apache2ctl configtest
@@ -1030,8 +1227,8 @@ final_validation() {
     systemctl is-active --quiet nginx
   fi
 
+  verify_php_through_web_server
   systemctl is-active --quiet mariadb
-  systemctl is-active --quiet "php${php_version}-fpm"
   systemctl is-active --quiet fail2ban
   redis-cli ping | grep -q '^PONG$'
   command -v node >/dev/null
@@ -1039,7 +1236,7 @@ final_validation() {
   command -v python3 >/dev/null
   command -v composer >/dev/null
 
-  ok "All required services passed validation."
+  ok "All required services and PHP-FPM versions passed validation."
 }
 
 write_final_info() {
@@ -1054,9 +1251,11 @@ write_final_info() {
       nginx -v 2>&1
     fi
   )"
+  safe_write_info "Installed PHP Versions" "$(join_by ", " "${PHP_SELECTED_VERSIONS[@]}")"
+  safe_write_info "Default PHP Version" "$php_version"
   safe_write_info "PHP Version" "$(php -v | head -n1)"
-  safe_write_info "PHP-FPM Service" "php${php_version}-fpm"
-  safe_write_info "PHP-FPM Socket" "/run/php/php${php_version}-fpm.sock"
+  safe_write_info "Default PHP-FPM Service" "php${php_version}-fpm"
+  safe_write_info "Default PHP-FPM Socket" "/run/php/php${php_version}-fpm.sock"
   safe_write_info "Redis Version" "$(redis-server --version)"
   safe_write_info "Node.js Version" "$(node --version)"
   safe_write_info "npm Version" "$(npm --version)"
@@ -1075,17 +1274,20 @@ show_completion() {
   [[ "$SSL_ACTIVE" == true ]] && scheme="https"
 
   echo
-  echo -e "${MAGENTA}╭──────────────────────────────────────────────────────────╮${NC}"
-  echo -e "${MAGENTA}│${NC}  ${GREEN}${BOLD}✔ SNYT SuperServer installation completed${NC}              ${MAGENTA}│${NC}"
-  echo -e "${MAGENTA}├──────────────────────────────────────────────────────────┤${NC}"
-  printf "${MAGENTA}│${NC}  %-56s${MAGENTA}│${NC}\n" "Version: $SUPERSERVER_VERSION"
-  printf "${MAGENTA}│${NC}  %-56s${MAGENTA}│${NC}\n" "System: $PRETTY_NAME"
-  printf "${MAGENTA}│${NC}  %-56s${MAGENTA}│${NC}\n" "Web: $scheme://$domain"
-  printf "${MAGENTA}│${NC}  %-56s${MAGENTA}│${NC}\n" "Stack: ${web_server^} + PHP $php_version (FPM)"
-  printf "${MAGENTA}│${NC}  %-56s${MAGENTA}│${NC}\n" "Credentials: $INFO_FILE"
-  printf "${MAGENTA}│${NC}  %-56s${MAGENTA}│${NC}\n" "Log: $LOG_FILE"
-  printf "${MAGENTA}│${NC}  %-56s${MAGENTA}│${NC}\n" "Add a domain: super-sdomain"
-  echo -e "${MAGENTA}╰──────────────────────────────────────────────────────────╯${NC}"
+  echo -e "${MAGENTA}╭──────────────────────────────────────────────────────────────╮${NC}"
+  echo -e "${MAGENTA}│${NC}  ${GREEN}${BOLD}✔ SNYT SuperServer is ready${NC}                                  ${MAGENTA}│${NC}"
+  echo -e "${MAGENTA}├──────────────────────────────────────────────────────────────┤${NC}"
+  printf "${MAGENTA}│${NC}  %-60s${MAGENTA}│${NC}\n" "Version       : $SUPERSERVER_VERSION"
+  printf "${MAGENTA}│${NC}  %-60s${MAGENTA}│${NC}\n" "System        : $PRETTY_NAME"
+  printf "${MAGENTA}│${NC}  %-60s${MAGENTA}│${NC}\n" "Website       : $scheme://$domain"
+  printf "${MAGENTA}│${NC}  %-60s${MAGENTA}│${NC}\n" "Web server    : ${web_server^}"
+  printf "${MAGENTA}│${NC}  %-60s${MAGENTA}│${NC}\n" "PHP installed : $(join_by ", " "${PHP_SELECTED_VERSIONS[@]}")"
+  printf "${MAGENTA}│${NC}  %-60s${MAGENTA}│${NC}\n" "Default PHP   : $php_version"
+  printf "${MAGENTA}│${NC}  %-60s${MAGENTA}│${NC}\n" "Credentials   : $INFO_FILE"
+  printf "${MAGENTA}│${NC}  %-60s${MAGENTA}│${NC}\n" "Add a domain  : super-sdomain"
+  echo -e "${MAGENTA}╰──────────────────────────────────────────────────────────────╯${NC}"
+  echo
+  echo -e "${DIM}Keep $INFO_FILE private. It contains generated database credentials.${NC}"
   echo
 }
 
@@ -1107,20 +1309,23 @@ main() {
 
   while true; do
     email="$(prompt_nonempty "Email for Let's Encrypt: ")"
-    validate_email "$email" && break
+    if validate_email "$email"; then
+      safe_write_info "SSL Email" "$email"
+      break
+    fi
     warn "Invalid email format."
   done
 
   choose_web_server
   install_base_packages
   configure_repositories
-  choose_php_version
+  choose_php_versions
   show_installation_summary
 
   install_web_server
   install_certbot
   configure_mariadb
-  install_php
+  install_php_versions
   create_primary_website
   configure_phpmyadmin
   install_python_tools
