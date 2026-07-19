@@ -8,7 +8,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-SUPERSERVER_VERSION="3.3.1"
+SUPERSERVER_VERSION="3.4.0"
 REPO_RAW="https://raw.githubusercontent.com/abdomuftah/SuperServer/main"
 INFO_DIR="/root/SNYT"
 INFO_FILE="$INFO_DIR/serverInfo.txt"
@@ -36,6 +36,25 @@ REDIS_UNIT=""
 mysql_admin_user="snyt_admin"
 mysql_admin_password=""
 pma_app_password=""
+
+# v3.4 wizard choices. All are collected before package installation starts.
+SSL_MODE="email"
+PHP_MODULE_PROFILE="essential"
+PHP_SELECTED_MODULES=()
+PHP_SKIPPED_PACKAGES=()
+INSTALL_MARIADB=true
+INSTALL_PHPMYADMIN=true
+INSTALL_REDIS=true
+INSTALL_COMPOSER=true
+INSTALL_NODEJS=true
+INSTALL_PM2=true
+INSTALL_PYTHON=true
+INSTALL_JAVA=false
+INSTALL_DOCKER=false
+INSTALL_UNATTENDED=true
+INSTALL_MOTD=true
+SECURITY_MODE="crowdsec-firewall"
+INSTALL_PLAN_FILE="$INFO_DIR/install-plan.conf"
 
 PHP_VERSION_CANDIDATES=(8.1 8.2 8.3 8.4 8.5)
 PHP_CORE_SUFFIXES=(
@@ -1404,6 +1423,946 @@ main() {
   install_fastfetch_motd
   configure_ssl
   install_domain_helper
+  final_validation
+  write_final_info
+  show_completion
+}
+
+
+# ==============================================================================
+# SuperServer v3.4.0 overrides
+# The original installer functions remain above for backwards readability; the
+# definitions below are the active v3.4 implementation.
+# ==============================================================================
+
+PHP_CORE_SUFFIXES=(cli common fpm)
+PHP_ESSENTIAL_MODULES=(curl mysql mbstring xml zip intl gd bcmath opcache readline)
+PHP_ALL_MODULES=(
+  curl mysql mbstring xml zip intl gd bcmath opcache readline
+  redis sqlite3 soap bz2 imagick tidy xmlrpc gmp ldap imap snmp apcu
+)
+
+module_label() {
+  case "$1" in
+    curl) printf 'cURL' ;;
+    mysql) printf 'MySQL / PDO MySQL' ;;
+    mbstring) printf 'Multibyte String' ;;
+    xml) printf 'XML suite (DOM, SimpleXML, XML, XSL)' ;;
+    zip) printf 'ZIP' ;;
+    intl) printf 'Internationalization (Intl)' ;;
+    gd) printf 'GD image library' ;;
+    bcmath) printf 'BCMath' ;;
+    opcache) printf 'Zend OPcache' ;;
+    readline) printf 'Readline' ;;
+    redis) printf 'Redis extension' ;;
+    sqlite3) printf 'SQLite3 / PDO SQLite' ;;
+    soap) printf 'SOAP' ;;
+    bz2) printf 'BZip2' ;;
+    imagick) printf 'ImageMagick' ;;
+    tidy) printf 'HTML Tidy' ;;
+    xmlrpc) printf 'XML-RPC' ;;
+    gmp) printf 'GMP' ;;
+    ldap) printf 'LDAP' ;;
+    imap) printf 'IMAP' ;;
+    snmp) printf 'SNMP' ;;
+    apcu) printf 'APCu cache' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+module_runtime_name() {
+  case "$1" in
+    mysql) printf 'mysqli' ;;
+    xml) printf 'SimpleXML' ;;
+    opcache) printf 'Zend OPcache' ;;
+    sqlite3) printf 'sqlite3' ;;
+    apcu) printf 'apcu' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+bool_text() {
+  [[ "$1" == true ]] && printf 'Yes' || printf 'No'
+}
+
+choose_ssl_contact() {
+  local choice=""
+  echo -e "${BOLD}Let's Encrypt account contact${NC}"
+  echo
+  echo "  1) Use a real email address (recommended)"
+  echo "  2) Continue without an email address"
+  echo
+  while true; do
+    read -r -p "Selection [1]: " choice
+    choice="${choice:-1}"
+    case "$choice" in
+      1)
+        SSL_MODE="email"
+        while true; do
+          email="$(prompt_nonempty "Let's Encrypt email: ")"
+          validate_email "$email" && break
+          warn "Invalid email format."
+        done
+        break
+        ;;
+      2)
+        SSL_MODE="no-email"
+        email="none"
+        warn "No recovery/contact email will be attached to the ACME account."
+        break
+        ;;
+      *) warn "Enter 1 or 2." ;;
+    esac
+  done
+  safe_write_info "SSL Registration Mode" "$SSL_MODE"
+  safe_write_info "SSL Email" "$email"
+}
+
+bootstrap_preflight() {
+  section "Preparing repository preflight"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y ca-certificates curl wget gnupg lsb-release openssl software-properties-common
+}
+
+configure_sury_php_repository() {
+  local release_url="https://packages.sury.org/php/dists/${VERSION_CODENAME}/Release"
+  check_release_url "$release_url" || fatal \
+    "packages.sury.org does not publish a PHP repository for $VERSION_CODENAME."
+
+  # Remove old SuperServer/Launchpad PHP definitions so APT has one PHP source.
+  rm -f /etc/apt/sources.list.d/*ondrej*php* \
+        /etc/apt/sources.list.d/php-sury.list \
+        /etc/apt/sources.list.d/php.list
+
+  curl -fsSLo /tmp/debsuryorg-archive-keyring.deb \
+    https://packages.sury.org/debsuryorg-archive-keyring.deb
+  dpkg -i /tmp/debsuryorg-archive-keyring.deb
+  rm -f /tmp/debsuryorg-archive-keyring.deb
+
+  cat > /etc/apt/sources.list.d/php.list <<EOF
+# Managed by SNYT SuperServer
+deb [signed-by=/usr/share/keyrings/debsuryorg-archive-keyring.gpg] https://packages.sury.org/php/ $VERSION_CODENAME main
+EOF
+
+  cat > /etc/apt/preferences.d/snyt-php-sury <<'EOF'
+Package: php* libapache2-mod-php*
+Pin: origin packages.sury.org
+Pin-Priority: 700
+EOF
+}
+
+configure_repositories() {
+  section "Configuring the Multi-PHP repository"
+  if [[ "$DISTRO_ID" == "ubuntu" ]]; then
+    add-apt-repository -y universe
+  fi
+  configure_sury_php_repository
+  apt-get update
+  ok "Sury Multi-PHP repository is active for $VERSION_CODENAME."
+}
+
+php_version_note() {
+  case "$1" in
+    8.1) printf 'legacy / end-of-life — explicit compatibility use only' ;;
+    8.2) printf 'security-maintained compatibility release' ;;
+    8.3) printf 'supported compatibility release' ;;
+    8.4) printf 'supported modern release' ;;
+    8.5) printf 'newest supported release' ;;
+    *) printf 'PHP-FPM release' ;;
+  esac
+}
+
+parse_php_selection() {
+  local input="$1"
+  local max="${#PHP_VERSION_CANDIDATES[@]}"
+  local token start end number candidate
+  local -a tokens=()
+  local -A selected=()
+
+  PHP_SELECTION_ERROR=""
+  input="${input//[[:space:]]/}"
+  [[ -n "$input" ]] || input="all"
+
+  # "all" intentionally excludes PHP 8.1 because it is EOL. The user can
+  # still select option 1 explicitly or enter 1-5.
+  if [[ "$input" =~ ^(all|ALL|available|supported|\*)$ ]]; then
+    PHP_SELECTED_VERSIONS=()
+    for candidate in "${AVAILABLE_PHP_VERSIONS[@]}"; do
+      [[ "$candidate" == "8.1" ]] && continue
+      PHP_SELECTED_VERSIONS+=("$candidate")
+    done
+    [[ ${#PHP_SELECTED_VERSIONS[@]} -gt 0 ]] || PHP_SELECTED_VERSIONS=("${AVAILABLE_PHP_VERSIONS[@]}")
+    return 0
+  fi
+
+  if [[ "$input" == "all+legacy" ]]; then
+    PHP_SELECTED_VERSIONS=("${AVAILABLE_PHP_VERSIONS[@]}")
+    return 0
+  fi
+
+  IFS=',' read -r -a tokens <<< "$input"
+  for token in "${tokens[@]}"; do
+    if [[ "$token" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+      start="${BASH_REMATCH[1]}"; end="${BASH_REMATCH[2]}"
+      (( start <= end )) || { PHP_SELECTION_ERROR="Invalid range: $token"; return 1; }
+      for ((number=start; number<=end; number++)); do
+        (( number >= 1 && number <= max )) || { PHP_SELECTION_ERROR="Option $number is outside the list."; return 1; }
+        selected["$number"]=1
+      done
+    elif [[ "$token" =~ ^[0-9]+$ ]]; then
+      number="$token"
+      (( number >= 1 && number <= max )) || { PHP_SELECTION_ERROR="Option $number is outside the list."; return 1; }
+      selected["$number"]=1
+    else
+      PHP_SELECTION_ERROR="Use option numbers, comma-separated choices, a range, all, or all+legacy."
+      return 1
+    fi
+  done
+
+  PHP_SELECTED_VERSIONS=()
+  for ((number=1; number<=max; number++)); do
+    [[ -n "${selected[$number]:-}" ]] || continue
+    candidate="${PHP_VERSION_CANDIDATES[$((number - 1))]}"
+    if ! php_candidate_is_available "$candidate"; then
+      PHP_SELECTION_ERROR="PHP $candidate is missing required packages: $(php_missing_core_packages "$candidate")"
+      PHP_SELECTED_VERSIONS=()
+      return 1
+    fi
+    PHP_SELECTED_VERSIONS+=("$candidate")
+  done
+  [[ ${#PHP_SELECTED_VERSIONS[@]} -gt 0 ]] || { PHP_SELECTION_ERROR="Select at least one PHP version."; return 1; }
+}
+
+choose_php_versions() {
+  local selection="" default_selection="" index version status recommended_version
+  section "Multi-PHP version selection"
+  discover_php_versions
+  recommended_version="${AVAILABLE_PHP_VERSIONS[$((${#AVAILABLE_PHP_VERSIONS[@]} - 1))]}"
+
+  echo "Sury packages are checked live for this operating-system codename."
+  echo
+  for index in "${!PHP_VERSION_CANDIDATES[@]}"; do
+    version="${PHP_VERSION_CANDIDATES[$index]}"
+    if php_candidate_is_available "$version"; then
+      status="${GREEN}AVAILABLE${NC}"
+    else
+      status="${RED}MISSING${NC}"
+    fi
+    printf '  %d) PHP %-3s  [%b]  %s' "$((index + 1))" "$version" "$status" "$(php_version_note "$version")"
+    [[ "$version" == "$recommended_version" ]] && printf ' %b' "${GREEN}(recommended)${NC}"
+    printf '\n'
+  done
+  echo
+  echo "Examples: 2 | 2,3,4 | 2-5 | all | all+legacy"
+  echo '"all" installs all available supported releases and excludes legacy PHP 8.1.'
+
+  while true; do
+    read -r -p "PHP versions to install [all]: " selection
+    parse_php_selection "$selection" && break
+    warn "$PHP_SELECTION_ERROR"
+  done
+
+  if [[ " ${PHP_SELECTED_VERSIONS[*]} " == *" 8.1 "* ]]; then
+    warn "PHP 8.1 is end-of-life and should only be used for legacy applications."
+  fi
+
+  if [[ ${#PHP_SELECTED_VERSIONS[@]} -eq 1 ]]; then
+    php_version="${PHP_SELECTED_VERSIONS[0]}"
+  else
+    echo
+    echo "Default PHP for CLI, the primary website and phpMyAdmin:"
+    for index in "${!PHP_SELECTED_VERSIONS[@]}"; do
+      printf '  %d) PHP %s\n' "$((index + 1))" "${PHP_SELECTED_VERSIONS[$index]}"
+    done
+    while true; do
+      read -r -p "Default PHP [${#PHP_SELECTED_VERSIONS[@]}]: " default_selection
+      default_selection="${default_selection:-${#PHP_SELECTED_VERSIONS[@]}}"
+      if [[ "$default_selection" =~ ^[0-9]+$ ]] && (( default_selection >= 1 && default_selection <= ${#PHP_SELECTED_VERSIONS[@]} )); then
+        php_version="${PHP_SELECTED_VERSIONS[$((default_selection - 1))]}"
+        break
+      fi
+      warn "Choose a valid option."
+    done
+  fi
+}
+
+parse_number_selection() {
+  local input="$1" max="$2" token start end number
+  local -n output_ref="$3"
+  local -a tokens=()
+  local -A selected=()
+  output_ref=()
+  input="${input//[[:space:]]/}"
+  [[ -n "$input" ]] || return 1
+  IFS=',' read -r -a tokens <<< "$input"
+  for token in "${tokens[@]}"; do
+    if [[ "$token" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+      start="${BASH_REMATCH[1]}"; end="${BASH_REMATCH[2]}"
+      (( start <= end )) || return 1
+      for ((number=start; number<=end; number++)); do
+        (( number >= 1 && number <= max )) || return 1
+        selected["$number"]=1
+      done
+    elif [[ "$token" =~ ^[0-9]+$ ]]; then
+      number="$token"
+      (( number >= 1 && number <= max )) || return 1
+      selected["$number"]=1
+    else
+      return 1
+    fi
+  done
+  for ((number=1; number<=max; number++)); do
+    [[ -n "${selected[$number]:-}" ]] && output_ref+=("$number")
+  done
+  [[ ${#output_ref[@]} -gt 0 ]]
+}
+
+choose_php_module_profile() {
+  local choice="" input="" index module
+  local -a selected_numbers=()
+  section "PHP extension profile"
+  echo "  1) Essential — common production extensions"
+  echo "  2) All       — every extension in the SuperServer catalog"
+  echo "  3) Custom    — choose extensions from a numbered menu"
+  echo
+  while true; do
+    read -r -p "Profile [1]: " choice
+    choice="${choice:-1}"
+    case "$choice" in
+      1) PHP_MODULE_PROFILE="essential"; PHP_SELECTED_MODULES=("${PHP_ESSENTIAL_MODULES[@]}"); break ;;
+      2) PHP_MODULE_PROFILE="all"; PHP_SELECTED_MODULES=("${PHP_ALL_MODULES[@]}"); break ;;
+      3)
+        PHP_MODULE_PROFILE="custom"
+        echo
+        echo "Core packages CLI, Common and PHP-FPM are always installed."
+        echo "Common also provides ctype, fileinfo, iconv and tokenizer."
+        echo
+        for index in "${!PHP_ALL_MODULES[@]}"; do
+          module="${PHP_ALL_MODULES[$index]}"
+          printf '  %2d) %s\n' "$((index + 1))" "$(module_label "$module")"
+        done
+        echo
+        while true; do
+          read -r -p "Extensions (example 1-10,12,15 or all): " input
+          if [[ "$input" == "all" ]]; then
+            PHP_SELECTED_MODULES=("${PHP_ALL_MODULES[@]}")
+            break
+          fi
+          if parse_number_selection "$input" "${#PHP_ALL_MODULES[@]}" selected_numbers; then
+            PHP_SELECTED_MODULES=()
+            for index in "${selected_numbers[@]}"; do
+              PHP_SELECTED_MODULES+=("${PHP_ALL_MODULES[$((index - 1))]}")
+            done
+            break
+          fi
+          warn "Invalid extension selection."
+        done
+        break
+        ;;
+      *) warn "Enter 1, 2 or 3." ;;
+    esac
+  done
+
+  echo
+  info "PHP extension profile: $PHP_MODULE_PROFILE"
+  printf '  %s\n' "$(join_by ", " "${PHP_SELECTED_MODULES[@]}")"
+}
+
+validate_php_module_plan() {
+  local version module package
+  local -a missing=()
+  for version in "${PHP_SELECTED_VERSIONS[@]}"; do
+    for module in "${PHP_SELECTED_MODULES[@]}"; do
+      package="php${version}-${module}"
+      if package_has_candidate "$package"; then
+        continue
+      fi
+      [[ "$module" == "opcache" ]] && continue
+      missing+=("$package")
+    done
+  done
+
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo
+    warn "The following selected extension packages are not published and will be skipped:"
+    printf '  - %s\n' "${missing[@]}"
+    confirm "Continue with the remaining available extensions?" "Y" || return 1
+  else
+    ok "Every selected PHP extension package is available for the selected PHP versions."
+  fi
+}
+
+choose_phpmyadmin() {
+  local answer=""
+  echo
+  read -r -p "Install phpMyAdmin at /phpmyadmin/? [Y/n]: " answer
+  answer="${answer:-Y}"
+  [[ "$answer" =~ ^[Yy]$ ]] && INSTALL_PHPMYADMIN=true || INSTALL_PHPMYADMIN=false
+}
+
+choose_components() {
+  local input="" index
+  local -a chosen=()
+  section "Optional components"
+  cat <<'EOF'
+  1) MariaDB server
+  2) Redis server
+  3) Composer
+  4) Node.js and npm
+  5) PM2 process manager
+  6) Python development tools
+  7) Java JDK
+  8) Docker Engine and Compose
+  9) Automatic security updates
+ 10) SNYT Fastfetch and MOTD
+
+Presets:
+  recommended = 1,2,3,4,5,6,9,10
+  all         = every component
+  none        = no optional component
+EOF
+  while true; do
+    read -r -p "Components [recommended]: " input
+    input="${input:-recommended}"
+    case "$input" in
+      recommended) chosen=(1 2 3 4 5 6 9 10); break ;;
+      all) chosen=(1 2 3 4 5 6 7 8 9 10); break ;;
+      none) chosen=(); break ;;
+      *) parse_number_selection "$input" 10 chosen && break; warn "Invalid component selection." ;;
+    esac
+  done
+
+  INSTALL_MARIADB=false; INSTALL_REDIS=false; INSTALL_COMPOSER=false
+  INSTALL_NODEJS=false; INSTALL_PM2=false; INSTALL_PYTHON=false
+  INSTALL_JAVA=false; INSTALL_DOCKER=false; INSTALL_UNATTENDED=false; INSTALL_MOTD=false
+  for index in "${chosen[@]}"; do
+    case "$index" in
+      1) INSTALL_MARIADB=true ;;
+      2) INSTALL_REDIS=true ;;
+      3) INSTALL_COMPOSER=true ;;
+      4) INSTALL_NODEJS=true ;;
+      5) INSTALL_PM2=true; INSTALL_NODEJS=true ;;
+      6) INSTALL_PYTHON=true ;;
+      7) INSTALL_JAVA=true ;;
+      8) INSTALL_DOCKER=true ;;
+      9) INSTALL_UNATTENDED=true ;;
+      10) INSTALL_MOTD=true ;;
+    esac
+  done
+
+  if [[ "$INSTALL_PHPMYADMIN" == true && "$INSTALL_MARIADB" != true ]]; then
+    info "phpMyAdmin requires MariaDB; MariaDB was enabled automatically."
+    INSTALL_MARIADB=true
+  fi
+}
+
+choose_security() {
+  local choice=""
+  section "Intrusion protection"
+  echo "  1) CrowdSec Security Engine + firewall bouncer (recommended)"
+  if [[ "$web_server" == "nginx" ]]; then
+    echo "  2) CrowdSec + firewall bouncer + Nginx AppSec/WAF"
+    echo "  3) No CrowdSec"
+  else
+    echo "  2) No CrowdSec"
+  fi
+  echo
+  while true; do
+    read -r -p "Security [1]: " choice
+    choice="${choice:-1}"
+    if [[ "$web_server" == "nginx" ]]; then
+      case "$choice" in
+        1) SECURITY_MODE="crowdsec-firewall"; break ;;
+        2) SECURITY_MODE="crowdsec-appsec"; break ;;
+        3) SECURITY_MODE="none"; break ;;
+        *) warn "Enter 1, 2 or 3." ;;
+      esac
+    else
+      case "$choice" in
+        1) SECURITY_MODE="crowdsec-firewall"; break ;;
+        2) SECURITY_MODE="none"; break ;;
+        *) warn "Enter 1 or 2." ;;
+      esac
+    fi
+  done
+}
+
+save_install_plan() {
+  mkdir -p "$INFO_DIR"
+  cat > "$INSTALL_PLAN_FILE" <<EOF
+# SNYT SuperServer installation plan — generated before installation
+DOMAIN="$domain"
+SSL_MODE="$SSL_MODE"
+SSL_EMAIL="$email"
+WEB_SERVER="$web_server"
+PHP_VERSIONS="$(join_by "," "${PHP_SELECTED_VERSIONS[@]}")"
+DEFAULT_PHP="$php_version"
+PHP_MODULE_PROFILE="$PHP_MODULE_PROFILE"
+PHP_MODULES="$(join_by "," "${PHP_SELECTED_MODULES[@]}")"
+INSTALL_MARIADB="$INSTALL_MARIADB"
+INSTALL_PHPMYADMIN="$INSTALL_PHPMYADMIN"
+INSTALL_REDIS="$INSTALL_REDIS"
+INSTALL_COMPOSER="$INSTALL_COMPOSER"
+INSTALL_NODEJS="$INSTALL_NODEJS"
+INSTALL_PM2="$INSTALL_PM2"
+INSTALL_PYTHON="$INSTALL_PYTHON"
+INSTALL_JAVA="$INSTALL_JAVA"
+INSTALL_DOCKER="$INSTALL_DOCKER"
+INSTALL_UNATTENDED="$INSTALL_UNATTENDED"
+INSTALL_MOTD="$INSTALL_MOTD"
+SECURITY_MODE="$SECURITY_MODE"
+EOF
+  chmod 600 "$INSTALL_PLAN_FILE"
+}
+
+show_installation_summary() {
+  echo
+  echo -e "${MAGENTA}╭────────────────────────────────────────────────────────────────────╮${NC}"
+  echo -e "${MAGENTA}│${NC}  ${BOLD}SNYT SuperServer installation plan${NC}                              ${MAGENTA}│${NC}"
+  echo -e "${MAGENTA}├────────────────────────────────────────────────────────────────────┤${NC}"
+  printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "Domain          : $domain"
+  printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "SSL account     : $([[ $SSL_MODE == email ]] && echo "$email" || echo "No email")"
+  printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "Web server      : ${web_server^}"
+  printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "PHP versions    : $(join_by ", " "${PHP_SELECTED_VERSIONS[@]}")"
+  printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "Default PHP     : $php_version"
+  printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "PHP extensions  : $PHP_MODULE_PROFILE (${#PHP_SELECTED_MODULES[@]} selected)"
+  printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "MariaDB         : $(bool_text "$INSTALL_MARIADB")"
+  printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "phpMyAdmin      : $(bool_text "$INSTALL_PHPMYADMIN") — /phpmyadmin/"
+  printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "Redis           : $(bool_text "$INSTALL_REDIS")"
+  printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "Node.js / PM2   : $(bool_text "$INSTALL_NODEJS") / $(bool_text "$INSTALL_PM2")"
+  printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "Python / Java   : $(bool_text "$INSTALL_PYTHON") / $(bool_text "$INSTALL_JAVA")"
+  printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "Docker          : $(bool_text "$INSTALL_DOCKER")"
+  printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "Security        : $SECURITY_MODE"
+  printf "${MAGENTA}│${NC}  %-66s${MAGENTA}│${NC}\n" "Plan file       : $INSTALL_PLAN_FILE"
+  echo -e "${MAGENTA}╰────────────────────────────────────────────────────────────────────╯${NC}"
+  echo
+  confirm "Start installation with this plan?" "Y" || fatal "Installation cancelled."
+  save_install_plan
+}
+
+install_base_packages() {
+  section "Updating the operating system and installing the foundation"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get dist-upgrade -y
+  apt-get autoremove -y
+  apt-get install -y \
+    ca-certificates curl wget gnupg lsb-release software-properties-common \
+    openssl jq screen nano git zip unzip ufw dialog gcc g++ make
+
+  [[ "$INSTALL_COMPOSER" == true ]] && apt-get install -y composer
+  [[ "$INSTALL_PYTHON" == true ]] && apt-get install -y python3 python3-dev python3-pip
+  [[ "$INSTALL_JAVA" == true ]] && apt-get install -y default-jdk
+}
+
+install_single_php_version() {
+  local version="$1" suffix package runtime
+  local -a packages=() installed_modules=()
+  section "Installing PHP $version"
+
+  for suffix in "${PHP_CORE_SUFFIXES[@]}"; do
+    package="php${version}-${suffix}"
+    package_has_candidate "$package" || fatal "Required PHP package unavailable: $package"
+    packages+=("$package")
+  done
+
+  for suffix in "${PHP_SELECTED_MODULES[@]}"; do
+    package="php${version}-${suffix}"
+    if package_has_candidate "$package"; then
+      packages+=("$package")
+      installed_modules+=("$suffix")
+    elif [[ "$suffix" == "opcache" ]]; then
+      info "No separate $package package; OPcache will be validated after installation."
+      installed_modules+=("$suffix")
+    else
+      PHP_SKIPPED_PACKAGES+=("$package")
+      warn "$package is unavailable and will be skipped."
+    fi
+  done
+
+  apt-get install -y "${packages[@]}"
+  systemctl enable --now "php${version}-fpm"
+  apply_php_configuration "$version"
+  verify_php_runtime "$version"
+
+  for suffix in "${installed_modules[@]}"; do
+    runtime="$(module_runtime_name "$suffix")"
+    /usr/bin/php"$version" -m | grep -qiFx "$runtime" || fatal \
+      "PHP $version extension validation failed: $runtime"
+  done
+}
+
+verify_php_runtime() {
+  local version="${1:-$php_version}" cli_bin="/usr/bin/php${version}" cli_version
+  [[ -x "$cli_bin" ]] || fatal "Missing PHP CLI binary: $cli_bin"
+  cli_version="$($cli_bin -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"
+  [[ "$cli_version" == "$version" ]] || fatal "PHP CLI mismatch for $version."
+  systemctl is-active --quiet "php${version}-fpm" || fatal "php${version}-fpm is not active."
+  [[ -S "/run/php/php${version}-fpm.sock" ]] || fatal "PHP-FPM socket missing for $version."
+  "$cli_bin" -m | grep -qi '^Zend OPcache$' || fatal "Zend OPcache is not loaded for PHP $version."
+  ok "PHP $version CLI, FPM and selected extensions passed validation."
+}
+
+configure_phpmyadmin() {
+  [[ "$INSTALL_PHPMYADMIN" == true ]] || { info "phpMyAdmin was not selected."; return 0; }
+  [[ "$INSTALL_MARIADB" == true ]] || fatal "phpMyAdmin requires MariaDB."
+  section "Installing phpMyAdmin at /phpmyadmin/"
+
+  pma_app_password="$(generate_password)"
+  export DEBIAN_FRONTEND=noninteractive
+  echo "phpmyadmin phpmyadmin/dbconfig-install boolean true" | debconf-set-selections
+  echo "phpmyadmin phpmyadmin/mysql/app-pass password $pma_app_password" | debconf-set-selections
+  echo "phpmyadmin phpmyadmin/app-password-confirm password $pma_app_password" | debconf-set-selections
+  echo "phpmyadmin phpmyadmin/reconfigure-webserver multiselect none" | debconf-set-selections
+  apt-get install -y phpmyadmin
+  configure_php_alternatives
+  systemctl restart "php${php_version}-fpm"
+
+  if [[ "$web_server" == "apache" ]]; then
+    rm -f /etc/apache2/conf-enabled/phpmyadmin.conf
+    cat > /etc/apache2/conf-available/snyt-phpmyadmin.conf <<EOF
+Alias /phpmyadmin /usr/share/phpmyadmin
+<Directory /usr/share/phpmyadmin>
+    Options FollowSymLinks
+    DirectoryIndex index.php
+    Require all granted
+    <FilesMatch \.php$>
+        SetHandler "proxy:unix:/run/php/php${php_version}-fpm.sock|fcgi://localhost/"
+    </FilesMatch>
+</Directory>
+<Directory /usr/share/phpmyadmin/setup>
+    Require all denied
+</Directory>
+EOF
+    a2enconf snyt-phpmyadmin >/dev/null
+    apache2ctl configtest
+    systemctl reload apache2
+  else
+    cat > /etc/nginx/snippets/phpmyadmin.conf <<EOF
+location = /phpmyadmin { return 301 /phpmyadmin/; }
+location /phpmyadmin/ {
+    root /usr/share/;
+    index index.php index.html;
+}
+location ~ ^/phpmyadmin/(.+\.php)$ {
+    root /usr/share/;
+    try_files \$uri =404;
+    include fastcgi_params;
+    fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+    fastcgi_pass unix:/run/php/php${php_version}-fpm.sock;
+}
+location ~* ^/phpmyadmin/(.+\.(?:css|js|jpg|jpeg|gif|png|svg|ico|woff|woff2|ttf|map))$ {
+    root /usr/share/;
+    expires 7d;
+    access_log off;
+}
+EOF
+    grep -qF 'include snippets/phpmyadmin.conf;' "/etc/nginx/sites-available/$domain.conf" || \
+      sed -i '/server_name/a\    include snippets/phpmyadmin.conf;' "/etc/nginx/sites-available/$domain.conf"
+    nginx -t
+    systemctl reload nginx
+  fi
+  safe_write_info "phpMyAdmin Database App Password" "$pma_app_password"
+}
+
+install_python_tools() {
+  [[ "$INSTALL_PYTHON" == true ]] || return 0
+  section "Installing Python tools"
+  python3 -m pip --version
+  if python3 -m pip install --help 2>/dev/null | grep -q -- '--break-system-packages'; then
+    python3 -m pip install --upgrade Django gunicorn --break-system-packages
+  else
+    python3 -m pip install --upgrade Django gunicorn
+  fi
+  [[ -e /usr/local/bin/python ]] || ln -s "$(command -v python3)" /usr/local/bin/python
+}
+
+install_nodejs() {
+  [[ "$INSTALL_NODEJS" == true ]] || return 0
+  section "Installing Node.js"
+  local nodesource_ok=false
+  if curl -fsSL --retry 3 https://deb.nodesource.com/setup_lts.x -o /tmp/snyt-nodesource.sh \
+      && bash /tmp/snyt-nodesource.sh; then
+    nodesource_ok=true
+  fi
+  rm -f /tmp/snyt-nodesource.sh
+  if [[ "$nodesource_ok" != true ]]; then
+    warn "NodeSource failed; using distribution Node.js packages."
+    rm -f /etc/apt/sources.list.d/nodesource.list /etc/apt/sources.list.d/nodesource.sources
+    apt-get update
+  fi
+  apt-get install -y nodejs npm || apt-get install -y nodejs
+  command -v npm >/dev/null || fatal "npm is unavailable."
+  if [[ "$INSTALL_PM2" == true ]]; then
+    npm install -g pm2@latest
+    pm2 startup systemd -u root --hp /root >/tmp/snyt-pm2-startup.txt 2>&1 || true
+  fi
+}
+
+configure_redis_repository() {
+  if check_release_url "https://packages.redis.io/deb/dists/$VERSION_CODENAME/Release"; then
+    install -d -m 0755 /usr/share/keyrings
+    curl -fsSL --retry 3 https://packages.redis.io/gpg \
+      | gpg --dearmor --yes -o /usr/share/keyrings/redis-archive-keyring.gpg
+    chmod 0644 /usr/share/keyrings/redis-archive-keyring.gpg
+    echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $VERSION_CODENAME main" \
+      > /etc/apt/sources.list.d/redis.list
+    apt-get update
+  fi
+}
+
+install_redis() {
+  [[ "$INSTALL_REDIS" == true ]] || return 0
+  configure_redis_repository
+  section "Installing Redis"
+  if package_has_candidate redis; then apt-get install -y redis; else apt-get install -y redis-server redis-tools; fi
+  systemctl daemon-reload
+  REDIS_UNIT=""
+  local candidate
+  for candidate in redis-server.service redis.service; do
+    if systemctl start "$candidate" >/dev/null 2>&1; then REDIS_UNIT="$candidate"; break; fi
+  done
+  [[ -n "$REDIS_UNIT" ]] || fatal "Redis could not be started."
+  redis-cli ping | grep -q '^PONG$'
+  safe_write_info "Redis Service" "$REDIS_UNIT"
+}
+
+install_docker() {
+  [[ "$INSTALL_DOCKER" == true ]] || return 0
+  section "Installing Docker Engine and Compose"
+  apt-get install -y docker.io
+  if package_has_candidate docker-compose-v2; then
+    apt-get install -y docker-compose-v2
+  elif package_has_candidate docker-compose-plugin; then
+    apt-get install -y docker-compose-plugin
+  else
+    apt-get install -y docker-compose
+  fi
+  systemctl enable --now docker
+  docker info >/dev/null
+}
+
+configure_crowdsec() {
+  [[ "$SECURITY_MODE" != "none" ]] || { info "CrowdSec was not selected."; return 0; }
+  section "Installing CrowdSec protection"
+  curl -fsSL https://install.crowdsec.net | sh
+  apt-get update
+  apt-get install -y crowdsec
+  cscli collections install crowdsecurity/linux
+  if [[ "$web_server" == "nginx" ]]; then
+    cscli collections install crowdsecurity/nginx
+  else
+    cscli collections install crowdsecurity/apache2
+  fi
+
+  mkdir -p /etc/crowdsec/acquis.d
+  if [[ "$web_server" == "nginx" ]]; then
+    cat > /etc/crowdsec/acquis.d/snyt-web.yaml <<'EOF'
+filenames:
+  - /var/log/nginx/access.log
+  - /var/log/nginx/error.log
+labels:
+  type: nginx
+---
+filenames:
+  - /var/log/auth.log
+labels:
+  type: syslog
+EOF
+  else
+    cat > /etc/crowdsec/acquis.d/snyt-web.yaml <<'EOF'
+filenames:
+  - /var/log/apache2/*.log
+labels:
+  type: apache2
+---
+filenames:
+  - /var/log/auth.log
+labels:
+  type: syslog
+EOF
+  fi
+
+  systemctl enable --now crowdsec
+  systemctl restart crowdsec
+
+  local bouncer_package="crowdsec-firewall-bouncer-iptables"
+  if command -v iptables >/dev/null 2>&1 && iptables -V 2>/dev/null | grep -qi nf_tables \
+      && package_has_candidate crowdsec-firewall-bouncer-nftables; then
+    bouncer_package="crowdsec-firewall-bouncer-nftables"
+  fi
+  apt-get install -y "$bouncer_package"
+  systemctl enable --now crowdsec-firewall-bouncer.service 2>/dev/null || true
+  systemctl is-active --quiet crowdsec-firewall-bouncer.service || fatal "CrowdSec firewall bouncer is not active."
+
+  if [[ "$SECURITY_MODE" == "crowdsec-appsec" ]]; then
+    apt-get install -y nginx lua5.1 libnginx-mod-http-lua luarocks gettext-base lua-cjson crowdsec-nginx-bouncer
+    cscli collections install crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules
+    cat > /etc/crowdsec/acquis.d/appsec.yaml <<'EOF'
+appsec_config: crowdsecurity/appsec-default
+labels:
+  type: appsec
+listen_addr: 127.0.0.1:7422
+source: appsec
+EOF
+    if [[ -f /etc/crowdsec/bouncers/crowdsec-nginx-bouncer.conf ]]; then
+      if grep -q '^APPSEC_URL=' /etc/crowdsec/bouncers/crowdsec-nginx-bouncer.conf; then
+        sed -i 's|^APPSEC_URL=.*|APPSEC_URL=http://127.0.0.1:7422|' /etc/crowdsec/bouncers/crowdsec-nginx-bouncer.conf
+      else
+        echo 'APPSEC_URL=http://127.0.0.1:7422' >> /etc/crowdsec/bouncers/crowdsec-nginx-bouncer.conf
+      fi
+    fi
+    systemctl restart crowdsec
+    systemctl restart nginx
+    ss -lnt | grep -q '127.0.0.1:7422' || warn "CrowdSec AppSec port 7422 was not detected yet."
+  fi
+
+  systemctl is-active --quiet crowdsec || fatal "CrowdSec is not active."
+  cscli version >/dev/null
+  safe_write_info "Intrusion Protection" "$SECURITY_MODE"
+}
+
+configure_ssl() {
+  section "Configuring Let's Encrypt SSL"
+  local certbot_args=(--non-interactive --agree-tos --redirect -d "$domain")
+  if [[ "$SSL_MODE" == "email" ]]; then
+    certbot_args+=(--email "$email")
+  else
+    certbot_args+=(--register-unsafely-without-email)
+  fi
+
+  if [[ "$web_server" == "apache" ]]; then
+    certbot --apache "${certbot_args[@]}" && SSL_ACTIVE=true || true
+  else
+    certbot --nginx "${certbot_args[@]}" && SSL_ACTIVE=true || true
+  fi
+
+  if [[ "$SSL_ACTIVE" == true ]]; then
+    certbot renew --dry-run || warn "Certbot renewal dry-run failed."
+    safe_write_info "SSL Status" "Active with automatic renewal"
+    safe_write_info "Primary URL" "https://$domain"
+    [[ "$INSTALL_PHPMYADMIN" == true ]] && safe_write_info "phpMyAdmin URL" "https://$domain/phpmyadmin/"
+  else
+    warn "SSL issuance is pending; installation continues over HTTP."
+    safe_write_info "SSL Status" "Pending"
+    safe_write_info "Primary URL" "http://$domain"
+    [[ "$INSTALL_PHPMYADMIN" == true ]] && safe_write_info "phpMyAdmin URL" "http://$domain/phpmyadmin/"
+  fi
+}
+
+configure_mariadb() {
+  [[ "$INSTALL_MARIADB" == true ]] || { info "MariaDB was not selected."; return 0; }
+  section "Installing and securing MariaDB"
+  apt-get install -y mariadb-server mariadb-client
+  systemctl enable --now mariadb
+  mysql_admin_password="$(generate_password)"
+  mariadb --protocol=socket <<SQL
+DELETE FROM mysql.user WHERE User='';
+DROP DATABASE IF EXISTS test;
+DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+CREATE USER IF NOT EXISTS '${mysql_admin_user}'@'localhost' IDENTIFIED BY '${mysql_admin_password}';
+ALTER USER '${mysql_admin_user}'@'localhost' IDENTIFIED BY '${mysql_admin_password}';
+GRANT ALL PRIVILEGES ON *.* TO '${mysql_admin_user}'@'localhost' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+SQL
+  safe_write_info "MariaDB Root Authentication" "unix_socket (use: sudo mariadb)"
+  safe_write_info "MariaDB Admin User" "$mysql_admin_user"
+  safe_write_info "MariaDB Admin Password" "$mysql_admin_password"
+  safe_write_info "MariaDB Version" "$(mariadb --version | head -n1)"
+}
+
+final_validation() {
+  section "Running final validation"
+  local version
+  configure_php_alternatives
+  for version in "${PHP_SELECTED_VERSIONS[@]}"; do verify_php_runtime "$version"; done
+  [[ "$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')" == "$php_version" ]] || fatal "Default PHP CLI mismatch."
+  if [[ "$web_server" == "apache" ]]; then apache2ctl configtest; systemctl is-active --quiet apache2; else nginx -t; systemctl is-active --quiet nginx; fi
+  verify_php_through_web_server
+  [[ "$INSTALL_MARIADB" == true ]] && systemctl is-active --quiet mariadb
+  [[ "$INSTALL_REDIS" == true ]] && redis-cli ping | grep -q '^PONG$'
+  [[ "$INSTALL_NODEJS" == true ]] && command -v node >/dev/null && command -v npm >/dev/null
+  [[ "$INSTALL_PYTHON" == true ]] && command -v python3 >/dev/null
+  [[ "$INSTALL_COMPOSER" == true ]] && command -v composer >/dev/null
+  [[ "$INSTALL_DOCKER" == true ]] && systemctl is-active --quiet docker
+  [[ "$SECURITY_MODE" != "none" ]] && systemctl is-active --quiet crowdsec
+  ok "All selected services and PHP-FPM versions passed validation."
+}
+
+write_final_info() {
+  safe_write_info "Installation Status" "Complete"
+  safe_write_info "Primary Domain" "$domain"
+  safe_write_info "SSL Registration Mode" "$SSL_MODE"
+  safe_write_info "SSL Email" "$email"
+  safe_write_info "Web Server" "$web_server"
+  safe_write_info "Installed PHP Versions" "$(join_by ", " "${PHP_SELECTED_VERSIONS[@]}")"
+  safe_write_info "Default PHP Version" "$php_version"
+  safe_write_info "PHP Module Profile" "$PHP_MODULE_PROFILE"
+  safe_write_info "PHP Modules" "$(join_by ", " "${PHP_SELECTED_MODULES[@]}")"
+  safe_write_info "phpMyAdmin Installed" "$(bool_text "$INSTALL_PHPMYADMIN")"
+  safe_write_info "Security Provider" "$SECURITY_MODE"
+  safe_write_info "Installation Plan" "$INSTALL_PLAN_FILE"
+  safe_write_info "Credentials File" "$INFO_FILE (permissions 600)"
+  safe_write_info "Installation Log" "$LOG_FILE"
+  chmod 600 "$INFO_FILE"
+  printf '%s\n' "$SUPERSERVER_VERSION" > "$STATE_FILE"
+  chmod 600 "$STATE_FILE"
+}
+
+install_management_helper() {
+  section "Installing SuperServer management tools"
+  fetch_asset super-server.sh /usr/local/sbin/super-server 0755
+  ln -sfn /usr/local/sbin/super-server /root/super-server.sh
+}
+
+main() {
+  check_previous_installation
+  detect_os
+  detect_ssh_port
+  print_banner
+
+  echo "A small repository preflight runs first so the wizard can show real PHP choices."
+  echo "No service stack is installed until you approve the final plan."
+  echo
+  bootstrap_preflight
+  configure_repositories
+
+  while true; do
+    domain="$(prompt_nonempty 'Primary web domain (example.com): ')"
+    validate_domain "$domain" && break
+    warn "Invalid domain format."
+  done
+  choose_ssl_contact
+  choose_web_server
+  check_web_server_conflict
+  choose_php_versions
+  choose_php_module_profile
+  validate_php_module_plan || fatal "PHP extension selection cancelled."
+  choose_phpmyadmin
+  choose_components
+  choose_security
+  show_installation_summary
+
+  # No interactive prompts are allowed after this point.
+  install_base_packages
+  install_web_server
+  install_certbot
+  configure_mariadb
+  install_php_versions
+  create_primary_website
+  configure_phpmyadmin
+  install_python_tools
+  install_nodejs
+  install_redis
+  install_docker
+  configure_firewall
+  configure_crowdsec
+  [[ "$INSTALL_UNATTENDED" == true ]] && configure_unattended_upgrades
+  [[ "$INSTALL_MOTD" == true ]] && install_fastfetch_motd
+  configure_ssl
+  install_domain_helper
+  install_management_helper
   final_validation
   write_final_info
   show_completion

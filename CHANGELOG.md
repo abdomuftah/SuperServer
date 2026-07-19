@@ -1,75 +1,42 @@
 # Changelog
 
-All notable changes to SNYT SuperServer are documented here.
-
-## [3.3.1] - 2026-07-19
-
-### Changed
-
-- The PHP menu now always displays PHP 8.1, 8.2, 8.3, 8.4 and 8.5.
-- Every version is labeled `AVAILABLE` or `UNAVAILABLE` using live package checks.
-- `all` now explicitly means every version currently marked `AVAILABLE`.
-- PHP choices are listed in ascending order for easier selection.
-
-### Fixed
-
-- Users can now see older PHP choices even when the current operating system repository does not publish them.
-- Selecting an unavailable PHP version now shows the exact missing core packages instead of silently hiding the version.
-
-## [3.3.0] - 2026-07-19
+## 3.4.0 — Multi-PHP Wizard and CrowdSec
 
 ### Added
 
-- Multi-PHP installation in one run.
-- Selection syntax supporting a single option, comma-separated options, ranges, or `all`.
-- Default PHP selection for CLI, the primary domain and phpMyAdmin.
-- Per-version PHP-FPM installation, configuration and validation.
-- `super-sdomain --list-php` command.
-- Local installed template directory at `/usr/local/share/snyt-superserver` so new domains do not depend on the GitHub branch state.
-- Unified modern and responsive `assets/index.php` template.
-- Dynamic starter-page system information including memory, disk, load, uptime and HTTPS state.
-- Redesigned installer welcome screen and completion summary.
+- Direct `packages.sury.org/php` repository integration for Ubuntu and Debian.
+- PHP 8.1–8.5 selection with live package verification.
+- `all` and `all+legacy` PHP selection behavior.
+- Essential, All and Custom PHP extension profiles.
+- Extension availability verification before installation starts.
+- Optional no-email Let’s Encrypt registration.
+- Complete initial questionnaire and final installation plan.
+- `/root/SNYT/install-plan.conf`.
+- Optional phpMyAdmin while retaining `/phpmyadmin/`.
+- Optional MariaDB, Redis, Composer, Node.js, PM2, Python, Java, Docker, unattended upgrades and MOTD.
+- CrowdSec Security Engine and firewall bouncer.
+- Optional Nginx CrowdSec AppSec/WAF.
+- `super-server` status and doctor helper.
+- Subdomain SSL inheritance for email and no-email accounts.
 
 ### Changed
 
-- `super-sdomain` now reads the Let's Encrypt email automatically from `/root/SNYT/serverInfo.txt`.
-- The add-domain helper now accepts only the domain and optional PHP version.
-- Apache uses explicit per-VirtualHost FPM sockets and disables global PHP handlers to protect Multi-PHP routing.
-- Apache phpMyAdmin configuration now uses the selected default FPM socket explicitly.
-- The installer records selected, installed and default PHP versions in `serverInfo.txt`.
-- Final validation checks every selected PHP-FPM service and socket.
-- Web runtime validation supports both pre-SSL HTTP and post-SSL local HTTPS checks.
-- Apache and Nginx now share one starter-page template.
+- Replaced Fail2ban with CrowdSec.
+- Apache continues to use PHP-FPM only; `mod_php` is intentionally excluded.
+- The installer performs only a minimal repository preflight before collecting every user choice.
+- No interactive questions are displayed after the final installation confirmation.
+- PHP module names are mapped to real Debian packages to avoid duplicate and virtual package errors.
 
-### Security
+### Retained
 
-- The starter page intentionally exposes only non-sensitive runtime information.
-- Generated database credentials remain restricted to `/root/SNYT/serverInfo.txt`.
+- Modern server information `index.php` template.
+- Apache/Nginx selection.
+- Multi-PHP per-domain FPM sockets.
+- Fixed `/phpmyadmin/` URL.
+- UFW, Certbot, generated credentials, Redis service compatibility, Fastfetch and SNYT MOTD.
 
-## [3.2.2] - 2026-07-19
+### Test status
 
-### Fixed
-
-- Removed duplicate Nginx `try_files` directives on Ubuntu 26.04 / Nginx 1.28+.
-- Added a compatibility cleanup for older Nginx templates.
-- Included all consumed assets in the release bundle.
-- Removed deprecated PHP session directives from the SNYT PHP configuration.
-
-## [3.2.1] - 2026-07-19
-
-### Fixed
-
-- PHP 8.5 OPcache detection when no separate `php8.5-opcache` package is published.
-- Automatic Ubuntu Universe repository enablement.
-- Improved missing-PHP-package diagnostics.
-
-## [3.2.0] - 2026-07-18
-
-### Added
-
-- Friendly Apache/Nginx choice.
-- Complete PHP package validation.
-- PHP-FPM runtime and socket validation.
-- Automatic SSH-port detection for UFW and Fail2ban.
-- Safer previous-installation guard.
-- Modern README and structured release bundle.
+- Bash syntax validated for installer and helper scripts.
+- PHP syntax validated for the index template.
+- Full VM installation matrix still required before marking this release production-stable.

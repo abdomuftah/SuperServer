@@ -2,165 +2,231 @@
 
 # ⚡ SNYT SuperServer
 
-### A clean, interactive Multi-PHP web-stack installer for Ubuntu and Debian
+### Deploy • Secure • Validate
 
-Choose **Apache or Nginx**, install one or several **PHP-FPM versions**, secure the server, and validate every service before completion.
+A modern interactive Multi-PHP web-stack installer for Ubuntu and Debian.
 
-[![Version](https://img.shields.io/badge/version-3.3.1-7c5cff?style=for-the-badge)](CHANGELOG.md)
-[![Bash](https://img.shields.io/badge/Bash-installer-4EAA25?style=for-the-badge&logo=gnubash&logoColor=white)](SuperServer.sh)
-[![Ubuntu](https://img.shields.io/badge/Ubuntu-22.04%20%7C%2024.04%20%7C%2026.04-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](#-supported-systems)
-[![Debian](https://img.shields.io/badge/Debian-11%20%7C%2012%20%7C%2013-A81D33?style=for-the-badge&logo=debian&logoColor=white)](#-supported-systems)
-
-<br>
-
-> One readable installer, a small assets folder, private generated credentials, clear logs, and no hidden control panel.
+![Version](https://img.shields.io/badge/version-3.4.0-7c3aed?style=for-the-badge)
+![Bash](https://img.shields.io/badge/Bash-installer-16a34a?style=for-the-badge&logo=gnubash)
+![Ubuntu](https://img.shields.io/badge/Ubuntu-22.04%20%7C%2024.04%20%7C%2026.04-E95420?style=for-the-badge&logo=ubuntu)
+![Debian](https://img.shields.io/badge/Debian-11%20%7C%2012%20%7C%2013-A81D33?style=for-the-badge&logo=debian)
 
 </div>
 
----
-
-## ✨ Highlights
-
-<table>
-<tr>
-<td width="50%" valign="top">
-
-### 🌐 Web stack
-
-- Friendly **Apache / Nginx** selection
-- **Multi-PHP FPM** installation
-- Per-domain PHP version selection
-- MariaDB and phpMyAdmin
-- Redis
-- Certbot with automatic renewal
-
-</td>
-<td width="50%" valign="top">
-
-### 🛡️ Security
-
-- UFW firewall
-- Automatic SSH-port detection
-- Fail2ban
-- unattended-upgrades
-- Random database credentials
-- Private files with restricted permissions
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-### 🧰 Development tools
-
-- Composer
-- Node.js LTS and PM2
-- Python, pip and Django
-- Java Development Kit
-- Git and common build tools
-
-</td>
-<td width="50%" valign="top">
-
-### 🖥️ Server experience
-
-- Modern installation welcome screen
-- SNYT Fastfetch MOTD
-- Modern dynamic `index.php` template
-- Detailed installation log
-- Final runtime validation
-- `super-sdomain` helper
-
-</td>
-</tr>
-</table>
+> One readable installer, one small assets folder, generated private credentials, and a complete validation pass before success is reported.
 
 ---
 
-## 🆕 Version 3.3.1
+## ✨ What is new in 3.4.0
 
-### Visible PHP choices with live availability
+- Direct `packages.sury.org/php` integration for true Multi-PHP on supported Ubuntu and Debian codenames.
+- PHP 8.1, 8.2, 8.3, 8.4 and 8.5 selection.
+- PHP extension profiles: **Essential**, **All**, and **Custom**.
+- Every user choice is collected before the service installation begins.
+- Real Let’s Encrypt email or **no-email registration**; fake/random email addresses are never generated.
+- Optional phpMyAdmin while keeping the permanent `/phpmyadmin/` path.
+- Optional MariaDB, Redis, Composer, Node.js, PM2, Python, Java, Docker, unattended updates and SNYT MOTD.
+- CrowdSec replaces Fail2ban.
+- Optional Nginx AppSec/WAF in addition to the CrowdSec firewall bouncer.
+- Installation plan saved to `/root/SNYT/install-plan.conf`.
+- `super-server` health and management helper.
+- Subdomains automatically inherit the main Let’s Encrypt email/no-email choice.
 
-SuperServer always displays the full PHP choice list instead of hiding versions that are unavailable on the current operating system:
+---
 
-```text
-PHP version selection
+## 🧭 Installer flow
 
-1) PHP 8.1  [UNAVAILABLE]  legacy compatibility
-2) PHP 8.2  [UNAVAILABLE]  wide compatibility
-3) PHP 8.3  [UNAVAILABLE]  modern compatibility
-4) PHP 8.4  [UNAVAILABLE]  modern release
-5) PHP 8.5  [AVAILABLE]    newest candidate (recommended available version)
-
-Examples: 2 | 2,4 | 2-5 | all
-PHP versions to install [all]:
+```mermaid
+flowchart TD
+    A[Start SuperServer] --> B[Repository preflight]
+    B --> C[Primary domain]
+    C --> D[Let's Encrypt contact]
+    D --> E[Apache or Nginx]
+    E --> F[PHP versions]
+    F --> G[Default PHP]
+    G --> H[PHP extension profile]
+    H --> I[phpMyAdmin]
+    I --> J[Optional components]
+    J --> K[CrowdSec protection]
+    K --> L[Review complete plan]
+    L --> M[Install without more prompts]
+    M --> N[Validate every selected service]
 ```
 
-The status is detected live after compatible repositories are configured:
+The small repository preflight happens before the questionnaire so SuperServer can display **real package availability**. No web stack, database, or optional service is installed until the final plan is approved.
 
-- **AVAILABLE** means CLI, FPM and every required core extension can be installed safely.
-- **UNAVAILABLE** means at least one required package is missing on the current OS/repository combination.
-- Selecting an unavailable option is rejected and then shows the exact missing-package list.
-- `all` installs every version currently marked **AVAILABLE**.
+---
 
-On systems where multiple complete versions exist, SuperServer installs all selected PHP-FPM services in one run.
+## 🐘 Multi-PHP
 
-When several versions are selected, you choose one default version for:
+SuperServer checks and can install:
 
-- The PHP CLI
-- The primary domain
-- phpMyAdmin
+| PHP | Status label | Default behavior |
+|---|---|---|
+| 8.1 | Legacy / EOL | Explicit selection only |
+| 8.2 | Compatibility | Included by `all` when available |
+| 8.3 | Supported | Included by `all` |
+| 8.4 | Supported | Included by `all` |
+| 8.5 | Newest | Recommended default |
 
-Every additional domain can use any active PHP-FPM socket independently.
+Examples:
 
-> [!NOTE]
-> Every supported PHP choice is displayed. Only versions marked **AVAILABLE** can be selected. Package availability still depends on the operating system and compatible repositories.
+```text
+2
+2,3,4
+2-5
+all
+all+legacy
+```
 
-### Automatic SSL email for new domains
+`all` excludes PHP 8.1. Use option `1`, a range containing it, or `all+legacy` when an old application genuinely requires it.
 
-`super-sdomain` no longer asks for a Let's Encrypt email. It reads the same address used by the primary domain from:
+### PHP-FPM only
+
+Apache and Nginx both use PHP-FPM sockets. SuperServer intentionally does **not** install `libapache2-mod-php`, avoiding two competing PHP handlers and preserving per-domain PHP selection.
+
+---
+
+## 🧩 PHP extension profiles
+
+### Essential
+
+```text
+cURL, MySQL, Mbstring, XML, ZIP, Intl, GD,
+BCMath, OPcache and Readline
+```
+
+### All
+
+Essential plus:
+
+```text
+Redis, SQLite3, SOAP, BZip2, Imagick, Tidy,
+XML-RPC, GMP, LDAP, IMAP, SNMP and APCu
+```
+
+### Custom
+
+The installer displays a numbered menu and accepts selections such as:
+
+```text
+1-10,12,15
+```
+
+Core packages are always installed:
+
+```text
+phpX.Y-cli
+phpX.Y-common
+phpX.Y-fpm
+```
+
+Some familiar names are grouped correctly:
+
+- `phpX.Y-xml` supplies DOM, SimpleXML, XML and XSL.
+- `phpX.Y-common` supplies common built-ins such as ctype, fileinfo, iconv and tokenizer.
+
+---
+
+## 🌐 Apache or Nginx
+
+| Feature | Apache | Nginx |
+|---|---:|---:|
+| `.htaccess` | ✅ | — |
+| PHP-FPM per domain | ✅ | ✅ |
+| Reverse proxy use | Good | Excellent |
+| CrowdSec firewall protection | ✅ | ✅ |
+| CrowdSec AppSec/WAF | Firewall mode | Optional Nginx mode |
+
+---
+
+## 🛡️ CrowdSec
+
+Security choices are collected in the initial wizard:
+
+```text
+1) CrowdSec Security Engine + firewall bouncer
+2) CrowdSec + firewall bouncer + Nginx AppSec/WAF
+3) No CrowdSec
+```
+
+For Apache, SuperServer installs the Security Engine, Apache log collection and firewall bouncer. For Nginx, AppSec can additionally inspect HTTP requests for application-layer attacks.
+
+CrowdSec configuration and metrics:
+
+```bash
+cscli metrics
+cscli decisions list
+systemctl status crowdsec
+systemctl status crowdsec-firewall-bouncer
+```
+
+---
+
+## 🔐 Let’s Encrypt
+
+The wizard offers:
+
+```text
+1) Real email address
+2) No email address
+```
+
+Subdomains use the same choice automatically:
+
+```bash
+super-sdomain app.example.com 8.4
+```
+
+The helper reads:
+
+```text
+SSL Registration Mode
+SSL Email
+```
+
+from:
 
 ```text
 /root/SNYT/serverInfo.txt
 ```
 
-Examples:
+---
 
-```bash
-super-sdomain app.example.com
-super-sdomain app.example.com 8.3
-super-sdomain --list-php
+## 🗃️ phpMyAdmin
+
+phpMyAdmin is optional, but when installed its path always stays:
+
+```text
+https://example.com/phpmyadmin/
 ```
 
-### Modern starter page
-
-Every new domain receives a responsive `index.php` page showing useful, non-sensitive runtime details:
-
-- Domain and hostname
-- Operating system
-- Web server and PHP runtime
-- Memory and disk utilization
-- System load and uptime
-- HTTPS status
-- Document root and useful server paths
-
-The template never displays database passwords or other secrets.
+It uses the selected default PHP-FPM version. Selecting phpMyAdmin automatically enables MariaDB.
 
 ---
 
-## ✅ Supported systems
+## 📦 Optional components
 
-| Distribution | Releases | Architecture |
-|---|---|---|
-| Ubuntu Server | 22.04 LTS, 24.04 LTS, 26.04 LTS | amd64; arm64 where packages exist |
-| Debian | 11, 12, 13 | amd64; arm64 where packages exist |
+```text
+MariaDB
+Redis Server
+Composer
+Node.js and npm
+PM2
+Python development tools
+Java JDK
+Docker Engine and Compose
+Automatic security updates
+SNYT Fastfetch and MOTD
+```
 
-SuperServer automatically detects the distribution, codename, architecture and active SSH port.
+Presets:
 
-External repositories are enabled only when release metadata exists for the detected codename. Otherwise, the installer safely uses distribution packages.
-
-> [!IMPORTANT]
-> Start on a clean VM and take a snapshot before testing a new release. The Nginx + PHP 8.5 path was validated on Ubuntu 26.04; other operating-system and web-server combinations should still be tested before production deployment.
+```text
+recommended
+all
+none
+```
 
 ---
 
@@ -168,21 +234,21 @@ External repositories are enabled only when release metadata exists for the dete
 
 ```bash
 sudo -i
-wget https://link.snyt.xyz/SuperServer -O SuperServer.sh
+cd /root
+curl -fsSL https://raw.githubusercontent.com/abdomuftah/SuperServer/main/SuperServer.sh -o SuperServer.sh
 chmod 700 SuperServer.sh
 bash -n SuperServer.sh
-./SuperServer.sh --version
+./SuperServer.sh
+```
+
+Run inside Screen for unstable SSH connections:
+
+```bash
 screen -S superserver
 ./SuperServer.sh
 ```
 
-Detach from `screen` without stopping installation:
-
-```text
-Ctrl+A, then D
-```
-
-Return later:
+Detach with `Ctrl+A`, then `D`. Return with:
 
 ```bash
 screen -r superserver
@@ -190,105 +256,37 @@ screen -r superserver
 
 ---
 
-## 🧭 Installation flow
-
-```mermaid
-flowchart LR
-    A[Detect OS and SSH] --> B[Primary domain and SSL email]
-    B --> C[Choose Apache or Nginx]
-    C --> D[Discover complete PHP versions]
-    D --> E[Select one or multiple PHP versions]
-    E --> F[Choose default PHP]
-    F --> G[Install web stack and tools]
-    G --> H[Issue SSL and harden server]
-    H --> I[Validate all PHP-FPM services]
-    I --> J[Ready]
-```
-
----
-
-## 🐘 Multi-PHP behavior
-
-SuperServer validates these packages before marking a PHP version **AVAILABLE**:
-
-```text
-phpX.Y-cli
-phpX.Y-common
-phpX.Y-fpm
-phpX.Y-curl
-phpX.Y-mysql
-phpX.Y-mbstring
-phpX.Y-xml
-phpX.Y-zip
-phpX.Y-intl
-phpX.Y-gd
-phpX.Y-bcmath
-```
-
-OPcache is installed as a separate package where provided, or validated as a built-in module when the distribution bundles it with PHP.
-
-Optional extensions are installed when available:
-
-```text
-redis sqlite3 soap bz2 imagick tidy
-```
-
-Apache and Nginx both route each domain directly to its selected FPM socket:
-
-```text
-/run/php/php8.2-fpm.sock
-/run/php/php8.3-fpm.sock
-/run/php/php8.4-fpm.sock
-/run/php/php8.5-fpm.sock
-```
-
-### Check installed versions
-
-```bash
-super-sdomain --list-php
-ls -l /run/php/php*-fpm.sock
-```
-
-### Change the default CLI manually
-
-```bash
-update-alternatives --config php
-```
-
-Changing the CLI default does not change an existing domain's FPM socket.
-
----
-
-## 🌍 Add a domain or subdomain
-
-Interactive:
-
-```bash
-super-sdomain
-```
-
-Specify a domain:
+## ➕ Add another domain
 
 ```bash
 super-sdomain app.example.com
+super-sdomain app.example.com 8.2
+super-sdomain --list-php
 ```
 
-Specify a domain and PHP version:
+Every new domain receives:
+
+- A modern `index.php` page.
+- Its own Apache VirtualHost or Nginx server block.
+- A selected PHP-FPM socket.
+- Let’s Encrypt using the main server’s stored contact mode.
+
+---
+
+## 🧰 Management helper
 
 ```bash
-super-sdomain app.example.com 8.3
+super-server
+super-server status
+super-server doctor
+super-server domains
+super-server php
+super-server ssl
+super-server restart
+super-server info
 ```
 
-The helper automatically:
-
-1. Reads the SSL email from `/root/SNYT/serverInfo.txt`.
-2. Creates the document root and modern starter page.
-3. Builds the Apache VirtualHost or Nginx server block.
-4. Routes PHP to the selected FPM socket.
-5. Validates and reloads the web server.
-6. Requests a Let's Encrypt certificate.
-7. Uses locally installed templates from `/usr/local/share/snyt-superserver`.
-8. Records the domain in `/root/SNYT/domains.txt`.
+`super-server info` automatically redacts password lines.
 
 ---
 
@@ -296,125 +294,65 @@ The helper automatically:
 
 | Purpose | Path |
 |---|---|
-| Credentials and installation details | `/root/SNYT/serverInfo.txt` |
-| Added-domain history | `/root/SNYT/domains.txt` |
-| Installation state | `/root/SNYT/.superserver-installed` |
-| Installation log | `/var/log/snyt-superserver.log` |
-| Website roots | `/var/www/html/<domain>` |
-| Add-domain helper | `/usr/local/sbin/super-sdomain` |
-| Local domain templates | `/usr/local/share/snyt-superserver` |
-| SNYT Fastfetch configuration | `/etc/snyt/fastfetch.jsonc` |
+| Credentials and server details | `/root/SNYT/serverInfo.txt` |
+| Approved installation plan | `/root/SNYT/install-plan.conf` |
+| Additional domain log | `/root/SNYT/domains.txt` |
+| Installer log | `/var/log/snyt-superserver.log` |
+| Shared templates | `/usr/local/share/snyt-superserver/` |
+| Domain helper | `/usr/local/sbin/super-sdomain` |
+| Management helper | `/usr/local/sbin/super-server` |
 
-Protect the credentials file:
-
-```bash
-chmod 600 /root/SNYT/serverInfo.txt
-```
-
-Display it with passwords hidden:
-
-```bash
-sed -E '/[Pp]assword:/s/:.*/: [REDACTED]/' /root/SNYT/serverInfo.txt
-```
+Keep `/root/SNYT/serverInfo.txt` private. It may contain generated MariaDB credentials.
 
 ---
 
-## 🔍 Validation commands
+## ✅ Validation
 
-```bash
-systemctl --failed --no-pager
-nginx -t                 # Nginx installations
-apache2ctl configtest    # Apache installations
-systemctl status 'php*-fpm' --no-pager
-redis-cli ping
-fail2ban-client status
-ufw status verbose
-certbot certificates
-certbot renew --dry-run
-```
+Before announcing success, SuperServer validates:
 
-Check a specific PHP version:
-
-```bash
-php8.3 -v
-php8.3 -m
-systemctl status php8.3-fpm --no-pager
-```
+- Every selected PHP CLI binary.
+- Every PHP-FPM service and socket.
+- Selected PHP extensions.
+- The default CLI PHP version.
+- PHP served through Apache or Nginx.
+- Web-server configuration syntax.
+- Selected MariaDB, Redis, Node.js, Python, Composer and Docker components.
+- CrowdSec when selected.
+- Let’s Encrypt renewal with a dry run after successful issuance.
 
 ---
 
-## 🧪 Current validation status
-
-| System | Web server | PHP | Status |
-|---|---|---|---|
-| Ubuntu 26.04 | Nginx | PHP 8.5 FPM | ✅ Full installation passed |
-| Ubuntu 26.04 | Apache | PHP 8.5 FPM | ⏳ Pending |
-| Ubuntu 24.04 | Nginx | Multi-PHP | ⏳ Pending |
-| Ubuntu 24.04 | Apache | Multi-PHP | ⏳ Pending |
-| Debian targets | Apache/Nginx | Available PHP versions | ⏳ Pending |
-
----
-
-## 🧯 Troubleshooting
-
-### Review the installer log
-
-```bash
-tail -n 200 /var/log/snyt-superserver.log
-```
-
-### SSL did not issue
-
-Confirm DNS points to the server and TCP ports 80/443 are reachable, then run:
-
-```bash
-certbot --nginx --email "$(awk -F': ' '$1=="SSL Email"{print $2}' /root/SNYT/serverInfo.txt)" -d example.com --redirect
-```
-
-Use `--apache` instead of `--nginx` on Apache installations.
-
-### A PHP version is marked unavailable
-
-Inspect package availability:
-
-```bash
-apt-cache policy php8.3-cli php8.3-fpm php8.3-mysql
-```
-
-A version remains visible but is marked **UNAVAILABLE** when any required package is missing. The installer prints the missing packages and refuses unsafe selection.
-
-### Previous installation guard
-
-```bash
-./SuperServer.sh --force
-```
-
-Use `--force` only after a snapshot or backup. It does not safely convert an existing Apache installation into Nginx or the reverse.
-
----
-
-## 🗂️ Repository layout
+## 🧪 Recommended test matrix
 
 ```text
-SuperServer/
-├── SuperServer.sh
-├── README.md
-├── CHANGELOG.md
-└── assets/
-    ├── index.php
-    ├── ApacheExample.conf
-    ├── nginxExample.conf
-    ├── apache_setup.sh
-    ├── nginx_setup.sh
-    ├── Apachejail.local
-    ├── Nginxjail.local
-    └── php.ini
+Ubuntu 26.04 + Nginx + PHP 8.2/8.3/8.4/8.5
+Ubuntu 26.04 + Apache + PHP 8.2/8.4/8.5
+Ubuntu 24.04 + Nginx + Essential modules
+Ubuntu 24.04 + Apache + All modules
+No-email SSL mode
+phpMyAdmin disabled
+CrowdSec firewall mode
+Nginx CrowdSec AppSec mode
+Docker selected and unselected
 ```
+
+Take a clean VM snapshot before every test.
+
+---
+
+## 📚 Upstream references
+
+- [Sury PHP repository instructions](https://packages.sury.org/php/README.txt)
+- [CrowdSec Linux installation](https://docs.crowdsec.net/u/getting_started/installation/linux/)
+- [CrowdSec firewall bouncer](https://docs.crowdsec.net/u/bouncers/firewall/)
+- [CrowdSec Nginx bouncer](https://docs.crowdsec.net/u/bouncers/nginx/)
+- [Certbot documentation](https://eff-certbot.readthedocs.io/en/stable/using.html)
+- [PHP supported versions](https://www.php.net/supported-versions.php)
 
 ---
 
 <div align="center">
 
-Built for **SNYT Hosting** ⚡
+Built with care by **SNYT Hosting**
 
 </div>
